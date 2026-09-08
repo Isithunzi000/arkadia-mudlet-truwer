@@ -1517,7 +1517,12 @@ local function renderLibrary()
     gui.render()
   end)
   btn("truwer.hdr.import", 126, 6, 110, "Importuj plik", function()
-    core.importFile(invokeFileDialog(false, getMudletHomeDir()))
+    -- Fala 10: semantyka Mudleta to invokeFileDialog(fileOrFolder, title)
+    -- z true = wybor PLIKU (false = wybor katalogu); drugi argument to
+    -- tytul okna, nie sciezka. Stara forma (false, getMudletHomeDir())
+    -- otwierala wybor katalogu, wiec import z pliku nigdy nie dzialal
+    -- na realnym kliencie (wykryte na zywym mudlet-web).
+    core.importFile(invokeFileDialog(true, "Wybierz plik do importu"))
     gui.render()
   end)
   btn("truwer.hdr.settings", 452, 6, 102, "Ustawienia", function()
