@@ -21,6 +21,784 @@ end</script>
 	</AliasPackage>
 	<ScriptPackage>
 		<Script isActive="yes" isFolder="no">
+			<name>truwer_core</name>
+			<eventHandlerList />
+			<script>
+-- truwer - rdzen czysto Lua: port 1:1 core pluginu Dargoth (index.ts 1.0.6)
+-- i rozszerzenia WWW (truwer.js 1.0.5). Paritet bajtowy dargoth === www ===
+-- mudlet pilnuje repo arkadia-truwer-testy (suita B, wspolne fixtury).
+-- Regulamin (D6): JEDYNE miejsce wysylki do gry to core.wyslijBufor -
+-- wolane wylacznie ze swiadomej akcji gracza (Enter w polu promptera).
+-- Automatyka pauzy przesuwa tylko kursor, nigdy nie wysyla.
+
+truwer = truwer or {}
+truwer.core = truwer.core or {}
+local core = truwer.core
+
+-- stale (mirror index.ts)
+core.LIB_BASE = "truwer.library"
+core.COMMON_CHAR = "__wspolne"
+core.COUNTDOWN_TICK_MS = 200
+
+-- punkty wstrzykiecia (testy deterministyczne; produkcja: getEpoch /
+-- math.random / tempTimer / killTimer)
+core._now = nil        -- funkcja -&gt; ms (jak Date.now)
+core._random = nil     -- funkcja -&gt; [0,1) (jak Math.random)
+core._armTimer = nil   -- fn -&gt; id (domyslnie: tempTimer co COUNTDOWN_TICK_MS)
+core._clearTimer = nil -- id -&gt; nil (domyslnie: killTimer)
+core.charOverride = nil -- przyszle ustawienia GUI (fala 5) nadpisuja postac
+
+local function nowMs()
+  if core._now then return core._now() end
+  return getEpoch() * 1000
+end
+
+local function rnd()
+  if core._random then return core._random() end
+  return math.random()
+end
+
+local function tryCall(fn)
+  if type(fn) ~= "function" then return nil end
+  local ok, v = pcall(fn)
+  if ok then return v end
+  return nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Biale znaki ECMAScript (WhiteSpace + LineTerminator): trim/`\s` w JS
+-- dzialaja na tym zbiorze, wiec port musi byc unikodowy (UTF-8).
+-- ---------------------------------------------------------------------------
+local JS_WS1 = { [9] = true, [10] = true, [11] = true, [12] = true, [13] = true, [32] = true }
+local JS_WS2 = { ["\194\160"] = true } -- U+00A0
+local JS_WS3 = {}
+do
+  JS_WS3["\225\154\128"] = true -- U+1680
+  for b = 0x80, 0x8A do JS_WS3["\226\128" .. string.char(b)] = true end -- U+2000..U+200A
+  JS_WS3["\226\128\168"] = true -- U+2028
+  JS_WS3["\226\128\169"] = true -- U+2029
+  JS_WS3["\226\128\175"] = true -- U+202F
+  JS_WS3["\226\129\159"] = true -- U+205F
+  JS_WS3["\227\128\128"] = true -- U+3000
+  JS_WS3["\239\187\191"] = true -- U+FEFF
+end
+
+-- dlugosc bialego znaku JS na pozycji i (w bajtach) albo nil
+local function wsLenAt(s, i)
+  local b = s:byte(i)
+  if not b then return nil end
+  if JS_WS1[b] then return 1 end
+  if JS_WS2[s:sub(i, i + 1)] then return 2 end
+  if JS_WS3[s:sub(i, i + 2)] then return 3 end
+  return nil
+end
+
+local function trimJs(s)
+  s = tostring(s)
+  local i, j = 1, #s
+  while i &lt;= j do
+    local l = wsLenAt(s, i)
+    if not l then break end
+    i = i + l
+  end
+  while j &gt;= i do
+    if j &gt;= 2 and JS_WS3[s:sub(j - 2, j)] then j = j - 3
+    elseif j &gt;= 1 and JS_WS2[s:sub(j - 1, j)] then j = j - 2
+    elseif JS_WS1[s:byte(j)] then j = j - 1
+    else break end
+  end
+  return s:sub(i, j)
+end
+
+-- ---------------------------------------------------------------------------
+-- String(n) po JS: dziesietnie dla -6 &lt;= exp10 &lt; 21, inaczej naukowo "e±X"
+-- (bez zer wiodacych w wykladniku). Zweryfikowane offline na V8.
+-- ---------------------------------------------------------------------------
+local function renderJs(digits, exp10, neg)
+  local sign = neg and "-" or ""
+  if exp10 &gt;= -6 and exp10 &lt; 21 then
+    if exp10 &gt;= 0 then
+      if #digits &lt;= exp10 then
+        return sign .. digits .. string.rep("0", exp10 - #digits + 1)
+      end
+      local whole = digits:sub(1, exp10 + 1)
+      local frac = digits:sub(exp10 + 2)
+      if frac == "" then return sign .. whole end
+      return sign .. whole .. "." .. frac
+    end
+    return sign .. "0." .. string.rep("0", -exp10 - 1) .. digits
+  end
+  local mant = digits:sub(1, 1)
+  if #digits &gt; 1 then mant = mant .. "." .. digits:sub(2) end
+  local es = exp10 &gt;= 0 and ("e+" .. exp10) or ("e-" .. (-exp10))
+  return sign .. mant .. es
+end
+
+function core.fmtNum(n)
+  if n ~= n then return "NaN" end
+  if n == math.huge then return "Infinity" end
+  if n == -math.huge then return "-Infinity" end
+  if n == 0 then return "0" end -- pokrywa -0
+  local neg = n &lt; 0
+  local a = math.abs(n)
+  local digits, exp10
+  for p = 1, 17 do
+    local s = string.format("%." .. (p - 1) .. "e", a)
+    if tonumber(s) == a then
+      local mant, ex = s:match("^([0-9.]+)e([+-]%d+)$")
+      digits = mant:gsub("%.", "")
+      exp10 = tonumber(ex)
+      break
+    end
+  end
+  if not digits then
+    local s = string.format("%.16e", a)
+    local mant, ex = s:match("^([0-9.]+)e([+-]%d+)$")
+    digits = mant:gsub("%.", "")
+    exp10 = tonumber(ex)
+  end
+  return renderJs(digits, exp10, neg)
+end
+
+-- String(v) po JS dla wartosci z brudnego wejscia (normKrok.tekst)
+local function jsString(v)
+  local t = type(v)
+  if t == "number" then return core.fmtNum(v) end
+  if t == "boolean" then return v and "true" or "false" end
+  if t == "table" then
+    if #v &gt; 0 then
+      local parts = {}
+      for i = 1, #v do parts[i] = jsString(v[i]) end
+      return table.concat(parts, ",")
+    end
+    return "[object Object]"
+  end
+  return tostring(v)
+end
+
+local function isFiniteNum(v)
+  return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
+end
+
+-- Array.isArray + map po indeksach: tabela jest "tablica", gdy wszystkie
+-- klucze sa dodatnimi intami (pusta = tablica; JSON-owy null z yajl zostawia
+-- dziure, wiec iteracja idzie po posortowanych kluczach, nie ipairs).
+local function arrayValues(t)
+  if type(t) ~= "table" then return nil end
+  local keys = {}
+  for k in pairs(t) do
+    if type(k) ~= "number" or k &lt; 1 or k % 1 ~= 0 then return nil end
+    keys[#keys + 1] = k
+  end
+  table.sort(keys)
+  local out = {}
+  for _, k in ipairs(keys) do out[#out + 1] = t[k] end
+  return out
+end
+
+-- ---------------------------------------------------------------------------
+-- genId: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2,8)
+-- Naiwna petla base36 dokladna dla 6 cyfr frakcji (dowiedzione offline
+-- na 10000 losowaniach LCG: wszystkie operacje posrednie dokladne w double).
+-- ---------------------------------------------------------------------------
+local D36 = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+local function base36int(n)
+  n = math.floor(n)
+  if n == 0 then return "0" end
+  local out = {}
+  while n &gt; 0 do
+    local r = n % 36
+    out[#out + 1] = D36:sub(r + 1, r + 1)
+    n = math.floor(n / 36)
+  end
+  local rev = {}
+  for i = #out, 1, -1 do rev[#rev + 1] = out[i] end
+  return table.concat(rev)
+end
+
+local function base36frac6(r)
+  if r &lt;= 0 then return "" end
+  local out = {}
+  for i = 1, 6 do
+    r = r * 36
+    local d = math.floor(r)
+    out[i] = D36:sub(d + 1, d + 1)
+    r = r - d
+  end
+  return table.concat(out)
+end
+
+function core.genId()
+  return "s" .. base36int(nowMs()) .. base36frac6(rnd())
+end
+
+-- ---------------------------------------------------------------------------
+-- Warianty: split po "|", trim kazdego, odrzucenie pustych
+-- ---------------------------------------------------------------------------
+local function splitRaw(t)
+  local out, pos = {}, 1
+  while true do
+    local i = string.find(t, "|", pos, true)
+    if not i then
+      out[#out + 1] = string.sub(t, pos)
+      break
+    end
+    out[#out + 1] = string.sub(t, pos, i - 1)
+    pos = i + 1
+  end
+  return out
+end
+
+function core.splitVariants(t)
+  local out = {}
+  for _, piece in ipairs(splitRaw(tostring(t))) do
+    local v = trimJs(piece)
+    if #v &gt; 0 then out[#out + 1] = v end
+  end
+  return out
+end
+
+function core.pickVariant(t)
+  local v = core.splitVariants(t)
+  if #v == 0 then return trimJs(t) end
+  return v[math.floor(rnd() * #v) + 1]
+end
+
+-- ---------------------------------------------------------------------------
+-- DSL: PAUSE_RE = ^\/pauza(?:\s+(\d+(?:\.\d+)?))?$ (case-insensitive)
+-- ---------------------------------------------------------------------------
+-- zwraca: true, sekundy|nil dla pauzy; nil dla zwyklej linii
+local function matchPause(line)
+  local pos = line:match("^/[Pp][Aa][Uu][Zz][Aa]()")
+  if not pos then return nil end
+  local rest = line:sub(pos)
+  if rest == "" then return true, nil end -- "/pauza" bez argumentu
+  local i = 1
+  local hadWs = false
+  while true do
+    local l = wsLenAt(rest, i)
+    if not l then break end
+    hadWs = true
+    i = i + l
+  end
+  if not hadWs then return nil end
+  local num = rest:sub(i)
+  if not num:match("^%d+%.%d+$") and not num:match("^%d+$") then return nil end
+  return true, tonumber(num)
+end
+
+function core.krokiFromDsl(text)
+  local out = {}
+  text = tostring(text)
+  -- split(/\r?\n/): samotny \r NIE jest separatorem
+  local pos = 1
+  while true do
+    local nl = text:find("\n", pos, true)
+    local raw = nl and text:sub(pos, nl - 1) or text:sub(pos)
+    if raw:sub(-1) == "\r" then raw = raw:sub(1, -2) end
+    local line = trimJs(raw)
+    if line ~= "" then
+      local isPause, sekundy = matchPause(line)
+      if isPause then
+        out[#out + 1] = { typ = "pauza", sekundy = sekundy }
+      elseif line:sub(1, 1) == "#" then
+        local t = line:sub(2)
+        local l = wsLenAt(t, 1)
+        if l then t = t:sub(1 + l) end
+        out[#out + 1] = { typ = "nota", tekst = t }
+      else
+        out[#out + 1] = { typ = "cmd", tekst = line }
+      end
+    end
+    if not nl then break end
+    pos = nl + 1
+  end
+  return out
+end
+
+function core.dslFromKroki(kroki)
+  local out = {}
+  for i, k in ipairs(kroki) do
+    if k.typ == "pauza" then
+      out[i] = k.sekundy ~= nil and ("/pauza " .. core.fmtNum(k.sekundy)) or "/pauza"
+    elseif k.typ == "nota" then
+      out[i] = "# " .. (k.tekst or "")
+    else
+      out[i] = k.tekst or ""
+    end
+  end
+  return table.concat(out, "\n")
+end
+
+-- ---------------------------------------------------------------------------
+-- Normalizacja scen
+-- ---------------------------------------------------------------------------
+function core.normKrok(k)
+  if type(k) ~= "table" then return nil end
+  if k.typ == "pauza" then
+    local s = k.sekundy
+    if not (isFiniteNum(s) and s &gt;= 0) then s = nil end
+    return { typ = "pauza", sekundy = s }
+  end
+  if k.typ == "nota" then
+    return { typ = "nota", tekst = k.tekst == nil and "" or jsString(k.tekst) }
+  end
+  return { typ = "cmd", tekst = k.tekst == nil and "" or jsString(k.tekst) }
+end
+
+local function normKrokiOf(o)
+  local kroki = {}
+  local arr = arrayValues(o.kroki)
+  if arr then
+    for _, v in ipairs(arr) do
+      local nk = core.normKrok(v)
+      if nk then kroki[#kroki + 1] = nk end
+    end
+  end
+  return kroki
+end
+
+function core.normScene(o)
+  if type(o) ~= "table" then return nil end
+  local now = nowMs()
+  return {
+    id = (type(o.id) == "string" and o.id ~= "") and o.id or core.genId(),
+    tytul = type(o.tytul) == "string" and o.tytul or "Scena",
+    autor = type(o.autor) == "string" and o.autor or "",
+    utworzono = isFiniteNum(o.utworzono) and o.utworzono or now,
+    zmodyfikowano = isFiniteNum(o.zmodyfikowano) and o.zmodyfikowano or now,
+    kroki = normKrokiOf(o),
+  }
+end
+
+function core.sceneFromDsl(text, title)
+  local now = nowMs()
+  return {
+    id = core.genId(),
+    tytul = title,
+    autor = "",
+    utworzono = now,
+    zmodyfikowano = now,
+    kroki = core.krokiFromDsl(text),
+  }
+end
+
+function core.sceneFromJson(o)
+  if type(o) ~= "table" then error("bad json") end
+  local now = nowMs()
+  return {
+    id = core.genId(), -- zawsze swieze id (import nie dziedziczy)
+    tytul = type(o.tytul) == "string" and o.tytul or "Importowana scena",
+    autor = type(o.autor) == "string" and o.autor or "",
+    utworzono = isFiniteNum(o.utworzono) and o.utworzono or now,
+    zmodyfikowano = isFiniteNum(o.zmodyfikowano) and o.zmodyfikowano or now,
+    kroki = normKrokiOf(o),
+  }
+end
+
+-- ---------------------------------------------------------------------------
+-- JSON.stringify(v, null, 2) po JS - tylko schemat truwera (stala kolejnosc
+-- kluczy; escaping jak JSON.stringify: cudzyslow i backslash, kontrolki 8/12/10/13/9 jako b/f/n/r/t, pozostale bajty ponizej 0x20 jako u00XX malymi literami; surowe UTF-8.
+-- ---------------------------------------------------------------------------
+local function jsonStr(s)
+  s = tostring(s)
+  local parts = { '"' }
+  for i = 1, #s do
+    local b = s:byte(i)
+    local ch = s:sub(i, i)
+    if ch == '"' then parts[#parts + 1] = '\\"'
+    elseif ch == '\\' then parts[#parts + 1] = '\\\\'
+    elseif b == 8 then parts[#parts + 1] = '\\b'
+    elseif b == 12 then parts[#parts + 1] = '\\f'
+    elseif b == 10 then parts[#parts + 1] = '\\n'
+    elseif b == 13 then parts[#parts + 1] = '\\r'
+    elseif b == 9 then parts[#parts + 1] = '\\t'
+    elseif b &lt; 32 then parts[#parts + 1] = string.format('\\u%04x', b)
+    else parts[#parts + 1] = ch end
+  end
+  parts[#parts + 1] = '"'
+  return table.concat(parts)
+end
+
+-- JSON.stringify(NaN/Infinity) = "null" (scen z takimi liczbami nie ma,
+-- ale strzegmy zgodnosci)
+local function jsonNum(n)
+  if not isFiniteNum(n) then return "null" end
+  return core.fmtNum(n)
+end
+
+local function pad2sp(lvl)
+  return string.rep("  ", lvl)
+end
+
+local function writeKrokJson(k, lvl)
+  local lines = { pad2sp(lvl + 1) .. '"typ": ' .. jsonStr(k.typ) }
+  if k.tekst ~= nil then lines[#lines + 1] = pad2sp(lvl + 1) .. '"tekst": ' .. jsonStr(k.tekst) end
+  if k.sekundy ~= nil then lines[#lines + 1] = pad2sp(lvl + 1) .. '"sekundy": ' .. jsonNum(k.sekundy) end
+  return "{\n" .. table.concat(lines, ",\n") .. "\n" .. pad2sp(lvl) .. "}"
+end
+
+local function writeKrokiArr(kroki, lvl)
+  if #kroki == 0 then return "[]" end
+  local parts = {}
+  for i, k in ipairs(kroki) do
+    parts[i] = pad2sp(lvl + 1) .. writeKrokJson(k, lvl + 1)
+  end
+  return "[\n" .. table.concat(parts, ",\n") .. "\n" .. pad2sp(lvl) .. "]"
+end
+
+-- koperta truwer-scene (format/wersja/tytul/autor/utworzono/zmodyfikowano/kroki)
+local function writeSceneJson(s, lvl)
+  local lines = {
+    pad2sp(lvl + 1) .. '"format": "truwer-scene"',
+    pad2sp(lvl + 1) .. '"wersja": 1',
+    pad2sp(lvl + 1) .. '"tytul": ' .. jsonStr(s.tytul),
+    pad2sp(lvl + 1) .. '"autor": ' .. jsonStr(s.autor),
+    pad2sp(lvl + 1) .. '"utworzono": ' .. jsonNum(s.utworzono),
+    pad2sp(lvl + 1) .. '"zmodyfikowano": ' .. jsonNum(s.zmodyfikowano),
+    pad2sp(lvl + 1) .. '"kroki": ' .. writeKrokiArr(s.kroki or {}, lvl + 1),
+  }
+  return "{\n" .. table.concat(lines, ",\n") .. "\n" .. pad2sp(lvl) .. "}"
+end
+
+function core.jsonFromScene(s)
+  return writeSceneJson(s, 0)
+end
+
+function core.bulkJson(scenes)
+  local sceny
+  if #scenes == 0 then
+    sceny = "[]"
+  else
+    local parts = {}
+    for i, s in ipairs(scenes) do
+      parts[i] = pad2sp(2) .. writeSceneJson(s, 2)
+    end
+    sceny = "[\n" .. table.concat(parts, ",\n") .. "\n" .. pad2sp(1) .. "]"
+  end
+  return "{\n"
+    .. '  "format": "truwer-scenes",\n'
+    .. '  "wersja": 1,\n'
+    .. '  "sceny": ' .. sceny .. "\n"
+    .. "}"
+end
+
+function core.bulkTxt(scenes)
+  local out = {}
+  for i, s in ipairs(scenes) do
+    local t = s.tytul
+    if t == nil or t == "" then t = "(bez tytulu)" end
+    out[i] = "=== " .. t .. " ===\n" .. core.dslFromKroki(s.kroki or {})
+  end
+  return table.concat(out, "\n\n")
+end
+
+-- ---------------------------------------------------------------------------
+-- Nazwy plikow / detekcja JSON
+-- ---------------------------------------------------------------------------
+function core.safeName(s)
+  local out = s
+  if out == nil or out == "" then out = "scena" end -- JS: s || "scena"
+  out = tostring(out):gsub("[^A-Za-z0-9._-]+", "_")
+  out = out:gsub("^_+", ""):gsub("_+$", "")
+  if out == "" then out = "scena" end
+  return out
+end
+
+function core.baseName(name)
+  local s = tostring(name or "")
+  s = s:gsub(".*[\\/]", "")
+  s = s:gsub("%.[^.]+$", "")
+  if s == "" then s = "Importowana scena" end
+  return s
+end
+
+function core.isJson(text, name)
+  local n = tostring(name or ""):lower()
+  if n:match("%.json$") then return true end
+  return trimJs(text):sub(1, 1) == "{"
+end
+
+-- ---------------------------------------------------------------------------
+-- Nawigacja po krokach (indeksy 0-based jak w JS; dostep kroki[i + 1])
+-- ---------------------------------------------------------------------------
+function core.firstPlayable(kroki, from)
+  local n = #kroki
+  local i = math.max(0, from)
+  while i &lt; n do
+    if kroki[i + 1].typ ~= "nota" then return i end
+    i = i + 1
+  end
+  return n
+end
+
+function core.prevPlayable(kroki, from)
+  local i = math.min(#kroki - 1, from)
+  while i &gt;= 0 do
+    if kroki[i + 1].typ ~= "nota" then return i end
+    i = i - 1
+  end
+  return -1
+end
+
+-- ---------------------------------------------------------------------------
+-- Import (tekst DSL albo JSON: pojedyncza scena / pakiet truwer-scenes /
+-- gola tablica). Bledny JSON -&gt; error (GUI pokazuje "Blad importu.").
+-- ---------------------------------------------------------------------------
+function core.importScenes(text, dslTitle, jsonName)
+  text = tostring(text)
+  if not core.isJson(text, jsonName) then
+    return { core.sceneFromDsl(text, dslTitle) }
+  end
+  local ok, parsed = pcall(yajl.to_value, text)
+  if not ok then error("bad json") end
+  local arr
+  if trimJs(text):sub(1, 1) == "[" then
+    -- Array.isArray(parsed): dla poprawnego JSON-a rownowazne z "[" na
+    -- poczatku (yajl nie rozroznia [] od {}, ale oba daja 0 scen)
+    arr = arrayValues(parsed) or {}
+  elseif type(parsed) == "table" and type(parsed.sceny) == "table" then
+    arr = arrayValues(parsed.sceny) or {}
+  else
+    arr = { parsed }
+  end
+  local out = {}
+  for _, v in ipairs(arr) do
+    out[#out + 1] = core.sceneFromJson(v)
+  end
+  return out
+end
+
+-- ---------------------------------------------------------------------------
+-- Storage per postac (D2): &lt;profil&gt;/truwer/library.&lt;postac&gt;.lua
+-- prefs per profil: &lt;profil&gt;/truwer/prefs.lua
+-- ---------------------------------------------------------------------------
+local function profileDir()
+  return tostring(getMudletHomeDir())
+end
+
+local function storagePath(name)
+  return profileDir() .. "/truwer/" .. name .. ".lua"
+end
+
+local function ensureDir()
+  -- table.save nie tworzy katalogow; lfs jest w Mudlecie, ale strzegmy sie
+  if type(lfs) == "table" and type(lfs.mkdir) == "function" then
+    pcall(lfs.mkdir, profileDir() .. "/truwer")
+  end
+end
+
+function core.charName()
+  local ov = core.charOverride
+  if type(ov) == "string" and trimJs(ov) ~= "" then return trimJs(ov) end
+  local c = tryCall(getCharacterName)
+  if type(c) == "string" and trimJs(c) ~= "" then return trimJs(c) end
+  local p = tryCall(getProfileName)
+  if type(p) == "string" and trimJs(p) ~= "" then return trimJs(p) end
+  return core.COMMON_CHAR
+end
+
+function core.charKey()
+  return core.LIB_BASE .. "." .. core.charName()
+end
+
+function core.libraryPath()
+  return storagePath("library." .. core.charName())
+end
+
+function core.prefsPath()
+  return storagePath("prefs")
+end
+
+function core.loadLibrary()
+  local t = table.load(core.libraryPath())
+  local out = {}
+  local arr = arrayValues(t)
+  if arr then
+    for _, v in ipairs(arr) do
+      local ns = core.normScene(v)
+      if ns then out[#out + 1] = ns end
+    end
+  end
+  core.state.library = out
+  return out
+end
+
+function core.saveLibrary()
+  ensureDir()
+  local ok = pcall(table.save, core.libraryPath(), core.state.library)
+  if not ok then return nil, "Blad zapisu biblioteki." end
+  return true
+end
+
+function core.addScenes(scenes)
+  for _, s in ipairs(scenes) do
+    core.state.library[#core.state.library + 1] = s
+  end
+  core.saveLibrary()
+end
+
+function core.loadPrefs()
+  local t = table.load(core.prefsPath())
+  if type(t) == "table" and type(t.autoCursor) == "boolean" then
+    core.state.autoCursor = t.autoCursor
+  else
+    core.state.autoCursor = true -- JS: brak klucza -&gt; true
+  end
+  return core.state.autoCursor
+end
+
+function core.savePrefs()
+  ensureDir()
+  return pcall(table.save, core.prefsPath(), { autoCursor = core.state.autoCursor })
+end
+
+-- ---------------------------------------------------------------------------
+-- Maszyna odtwarzania (mirror stanu i akcji index.ts: cursor 0-based,
+-- playBuffer, autoCursor). GUI dojdzie w falach 2-4; rdzen jest kompletny
+-- i testowalny bez GUI.
+-- ---------------------------------------------------------------------------
+core.state = core.state or {
+  library = {},
+  currentId = nil,
+  cursor = 0,
+  playBuffer = "",
+  autoCursor = true,
+  pauseRemainMs = nil,
+}
+
+function core.currentScene()
+  for _, s in ipairs(core.state.library) do
+    if s.id == core.state.currentId then return s end
+  end
+  return nil
+end
+
+function core.primeBuffer()
+  local s = core.currentScene()
+  if not s then
+    core.state.playBuffer = ""
+    return
+  end
+  local k = s.kroki[core.state.cursor + 1]
+  core.state.playBuffer = (k and k.typ == "cmd") and core.pickVariant(k.tekst) or ""
+end
+
+function core.openScene(id, mode)
+  core.state.currentId = id
+  if mode == "play" then
+    local s = core.currentScene()
+    if s then
+      core.state.cursor = core.firstPlayable(s.kroki, 0)
+      core.primeBuffer()
+    end
+  end
+end
+
+function core.stopPause()
+  local st = core.state
+  if st._pauseTimerId ~= nil then
+    local clear = core._clearTimer
+    if clear == nil and type(killTimer) == "function" then clear = killTimer end
+    if clear then pcall(clear, st._pauseTimerId) end
+    st._pauseTimerId = nil
+  end
+  st._pauseStart = nil
+  st._pauseTotal = nil
+  st.pauseRemainMs = nil
+end
+
+function core.advance()
+  local s = core.currentScene()
+  if not s then return end
+  core.stopPause()
+  core.state.cursor = core.firstPlayable(s.kroki, core.state.cursor + 1)
+  core.primeBuffer()
+end
+
+function core.back()
+  local s = core.currentScene()
+  if not s then return end
+  core.stopPause()
+  local target = core.state.cursor &gt;= #s.kroki and (#s.kroki - 1) or (core.state.cursor - 1)
+  local p = core.prevPlayable(s.kroki, target)
+  core.state.cursor = p &lt; 0 and core.firstPlayable(s.kroki, 0) or p
+  core.primeBuffer()
+end
+
+function core.stop()
+  local s = core.currentScene()
+  if not s then return end
+  core.stopPause()
+  core.state.cursor = core.firstPlayable(s.kroki, 0)
+  core.primeBuffer()
+end
+
+function core.activateStep(i)
+  local s = core.currentScene()
+  if not s then return end
+  if i &lt; 0 or i &gt;= #s.kroki then return end
+  if s.kroki[i + 1].typ == "nota" then return end
+  core.stopPause()
+  core.state.cursor = i
+  core.primeBuffer()
+end
+
+-- ---------------------------------------------------------------------------
+-- Odliczanie pauzy (mirror startPauseTimer/stopPauseTimer; COUNTDOWN_TICK_MS
+-- = 200). Produkcja: one-shot tempTimer uzbrajany ponownie po kazdym ticku
+-- (rownowazne setInterval z JS). Koniec odliczania: tylko przesuniecie
+-- kursora przy autoCursor - ZADNEJ wysylki (regulamin).
+-- ---------------------------------------------------------------------------
+function core.startPause(seconds)
+  core.stopPause()
+  local st = core.state
+  st._pauseTotal = seconds * 1000
+  st._pauseStart = nowMs()
+  core._pauseTick() -- JS: tick() przed setInterval
+end
+
+function core._pauseTick()
+  local st = core.state
+  if st._pauseTotal == nil then return end
+  local rem = math.max(0, st._pauseTotal - (nowMs() - st._pauseStart))
+  st.pauseRemainMs = rem
+  if rem &lt;= 0 then
+    st._pauseTimerId = nil
+    st._pauseStart = nil
+    st._pauseTotal = nil
+    if st.autoCursor then core.advance() end
+  else
+    local arm = core._armTimer
+    if arm == nil and type(tempTimer) == "function" then
+      arm = function(fn) return tempTimer(core.COUNTDOWN_TICK_MS / 1000, fn) end
+    end
+    if arm then st._pauseTimerId = arm(function() core._pauseTick() end) end
+  end
+end
+
+function core.fmtCountdown(remMs)
+  return string.format("%.1f", remMs / 1000) .. "s"
+end
+
+-- ---------------------------------------------------------------------------
+-- JEDYNE miejsce wysylki do gry (D6): wolane wylacznie ze swiadomej akcji
+-- gracza (Enter w polu promptera / przycisk). Pusty bufor = blad, zero
+-- wysylki, kursor stoi. Po udanej wysylce: advance.
+-- ---------------------------------------------------------------------------
+function core.wyslijBufor()
+  local text = trimJs(core.state.playBuffer)
+  if text == "" then return nil, "Pusta komenda." end
+  -- JS: send w try/catch, advance ZAWSZE po probie (finally)
+  local ok = pcall(send, text)
+  core.advance()
+  if not ok then return nil, "Blad wyslania komendy." end
+  return text
+end
+			</script>
+		</Script>
+		<Script isActive="yes" isFolder="no">
 			<name>truwer_init</name>
 			<eventHandlerList />
 			<script>
