@@ -1399,9 +1399,21 @@ local function mk(name, x, y, wd, h, container)
   return l
 end
 
+-- Fala 9b: setLabelText NIE jest zbindowane w mudlet-web (jest tylko
+-- getLabelText); tam nazwane echo(name, text) na labelu ZASTEPUJE zawartosc
+-- (LuaRuntime.ts), czyli dokladnie semantyka setLabelText z desktopa.
+-- Feature-detect: desktop -&gt; setLabelText, mudlet-web -&gt; nazwane echo.
+local function setText(name, s)
+  if type(setLabelText) == "function" then
+    setLabelText(name, s)
+  else
+    echo(name, s)
+  end
+end
+
 local function btn(name, x, y, wd, label, fn, container)
   local l = mk(name, x, y, wd, 24, container)
-  setLabelText(name, label)
+  setText(name, label)
   l:setClickCallback(fn)
   l:show()
   return l
@@ -1409,7 +1421,7 @@ end
 
 local function txt(name, x, y, wd, h, text, container)
   local l = mk(name, x, y, wd, h, container)
-  setLabelText(name, text)
+  setText(name, text)
   l:show()
   return l
 end
@@ -1893,7 +1905,7 @@ function gui.renderCountdown()
   if rem == nil then return end
   local wg = gui.managed["truwer.pl.countdown"]
   if not wg then return end
-  setLabelText("truwer.pl.countdown", core.fmtCountdown(rem))
+  setText("truwer.pl.countdown", core.fmtCountdown(rem))
 end
 
 function gui.render()
