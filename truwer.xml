@@ -45,8 +45,6 @@ truwer.core = truwer.core or {}
 local core = truwer.core
 
 -- stale (mirror index.ts)
-core.LIB_BASE = "truwer.library"
-core.COMMON_CHAR = "__wspolne"
 core.COUNTDOWN_TICK_MS = 200
 
 -- punkty wstrzykiecia (testy deterministyczne; produkcja: getEpoch /
@@ -55,7 +53,6 @@ core._now = nil        -- funkcja -&gt; ms (jak Date.now)
 core._random = nil     -- funkcja -&gt; [0,1) (jak Math.random)
 core._armTimer = nil   -- fn -&gt; id (domyslnie: tempTimer co COUNTDOWN_TICK_MS)
 core._clearTimer = nil -- id -&gt; nil (domyslnie: killTimer)
-core.charOverride = nil -- przyszle ustawienia GUI (fala 5) nadpisuja postac
 
 local function nowMs()
   if core._now then return core._now() end
@@ -65,13 +62,6 @@ end
 local function rnd()
   if core._random then return core._random() end
   return math.random()
-end
-
-local function tryCall(fn)
-  if type(fn) ~= "function" then return nil end
-  local ok, v = pcall(fn)
-  if ok then return v end
-  return nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -598,22 +588,65 @@ local function ensureDir()
   end
 end
 
-function core.charName()
-  local ov = core.charOverride
-  if type(ov) == "string" and trimJs(ov) ~= "" then return trimJs(ov) end
-  local c = tryCall(getCharacterName)
-  if type(c) == "string" and trimJs(c) ~= "" then return trimJs(c) end
-  local p = tryCall(getProfileName)
-  if type(p) == "string" and trimJs(p) ~= "" then return trimJs(p) end
-  return core.COMMON_CHAR
-end
-
-function core.charKey()
-  return core.LIB_BASE .. "." .. core.charName()
-end
-
+-- Fala 7 (D43): profil Mudleta = postac, wiec biblioteka jest jedna per
+-- profil; lancuch tozsamosci (dawne D2: override &gt; getCharacterName &gt;
+-- getProfileName &gt; __wspolne) wycofany — w dargoth storage byl wspolny
+-- dla wszystkich postaci, w Mudlecie ten powod znika, a lancuch dodawal
+-- timing-fallbacki (okno przed zalogowaniem -&gt; inna biblioteka).
 function core.libraryPath()
-  return storagePath("library." .. core.charName())
+  return storagePath("library")
+end
+
+-- D44: migracja z bibliotek per-postac (&lt;=1.0.0m). Gdy brak library.lua,
+-- a sa pliki library.&lt;cos&gt;.lua — scal (dedupe po id, nowsze zmodyfikowano
+-- wygrywa), zapisz library.lua, usun legacy. Gdy library.lua istnieje,
+-- pliki legacy zostaja nietkniete (nic nie kasujemy znad gotowej
+-- biblioteki).
+local function legacyLibraryFiles()
+  local dir = profileDir() .. "/truwer"
+  local out = {}
+  if type(lfs) == "table" and type(lfs.dir) == "function" then
+    local ok, iter = pcall(lfs.dir, dir)
+    if ok and iter then
+      for name in iter do
+        if type(name) == "string" and name:match("^library%..+%.lua$") then
+          out[#out + 1] = dir .. "/" .. name
+        end
+      end
+    end
+  end
+  table.sort(out) -- determinizm kolejnosci merge
+  return out
+end
+
+function core.migrateLegacyLibrary()
+  if table.load(core.libraryPath()) ~= nil then return false end
+  local legacy = legacyLibraryFiles()
+  if #legacy == 0 then return false end
+  local byId = {}
+  for _, p in ipairs(legacy) do
+    local arr = arrayValues(table.load(p))
+    if arr then
+      for _, v in ipairs(arr) do
+        local ns = core.normScene(v)
+        if ns then
+          local old = byId[ns.id]
+          if not old or (ns.zmodyfikowano or 0) &gt;= (old.zmodyfikowano or 0) then
+            byId[ns.id] = ns
+          end
+        end
+      end
+    end
+  end
+  local merged = {}
+  for _, s in pairs(byId) do merged[#merged + 1] = s end
+  table.sort(merged, function(a, b)
+    return (a.zmodyfikowano or 0) &gt; (b.zmodyfikowano or 0)
+  end)
+  core.state.library = merged
+  core.saveLibrary()
+  for _, p in ipairs(legacy) do os.remove(p) end
+  return true
 end
 
 function core.prefsPath()
@@ -621,6 +654,7 @@ function core.prefsPath()
 end
 
 function core.loadLibrary()
+  core.migrateLegacyLibrary() -- D44: no-op, gdy library.lua istnieje
   local t = table.load(core.libraryPath())
   local out = {}
   local arr = arrayValues(t)
@@ -655,13 +689,8 @@ function core.loadPrefs()
   else
     core.state.autoCursor = true -- JS: brak klucza -&gt; true
   end
-  -- D38: override postaci (biblioteka per postac); brak klucza = auto
-  if type(t) == "table" and type(t.charOverride) == "string"
-     and trimJs(t.charOverride) ~= "" then
-    core.charOverride = trimJs(t.charOverride)
-  else
-    core.charOverride = nil
-  end
+  -- D45 (fala 7): legacy klucz charOverride w pliku jest ignorowany
+  -- i znika przy nastepnym zapisie.
   return core.state.autoCursor
 end
 
@@ -669,7 +698,6 @@ function core.savePrefs()
   ensureDir()
   return pcall(table.save, core.prefsPath(), {
     autoCursor = core.state.autoCursor,
-    charOverride = core.charOverride,
   })
 end
 
@@ -1151,20 +1179,6 @@ function core.openSettings()
   local st = core.state
   core.stopPause()
   st.view = "settings"
-end
-
--- D37/D38: override postaci (puste = auto). Zmiana przeladowuje biblioteke
--- i wraca do listy; otwarta scena jest z STAREJ biblioteki — zamykamy.
-function core.setCharOverride(name)
-  name = trimJs(tostring(name or ""))
-  core.charOverride = name ~= "" and name or nil
-  core.savePrefs()
-  local st = core.state
-  st.currentId = nil
-  st.selectedIds = {}
-  st.view = "library"
-  core.loadLibrary()
-  core.showStatus("Biblioteka postaci: " .. core.charName() .. ".", "success")
 end
 
 function core.newScene()
@@ -1773,7 +1787,7 @@ local HELP_LINES = {
   "Otwieranie: wpisz /truwer (otwiera i zamyka okno).",
   "",
   "Biblioteka i tryby:",
-  "- Biblioteka to lista Twoich scen, osobna dla każdej postaci. Tu",
+  "- Biblioteka to lista Twoich scen, osobna dla kazdego profilu. Tu",
   "  tworzysz, importujesz, otwierasz, odgrywasz, eksportujesz, usuwasz.",
   "- Otwarta scena ma dwa tryby (wiersz Tryb): Edycja (budujesz kroki)",
   "  oraz Odtwarzanie (odgrywasz scenę).",
@@ -1841,21 +1855,16 @@ local function renderHelp()
   end
 end
 
--- Ustawienia (fala 5, D37): override postaci + manualna kontrola update.
+-- Ustawienia (fala 5; fala 7 D45: pole Postac wycofane — profil = postac).
 local function renderSettings()
   btn("truwer.st.back", 10, 6, 90, "Powrót", function()
     core.goLibrary()
     gui.render()
   end)
-  txt("truwer.st.label", 10, 50, 620, 24,
-    "Postać (osobna biblioteka scen; puste = automatycznie):")
-  line("truwer.st.char", 10, 78, 300, core.charName(), function(t)
-    core.setCharOverride(t)
-    gui.render()
-  end)
-  txt("truwer.st.info", 10, 112, 620, 20,
-    "Biblioteka zapisywana w profilu: truwer/library." .. core.charName() .. ".lua")
-  btn("truwer.st.update", 10, 160, 180, "Sprawdź aktualizacje", function()
+  txt("truwer.st.label", 10, 50, 620, 24, "Ustawienia")
+  txt("truwer.st.info", 10, 80, 620, 20,
+    "Biblioteka zapisywana w profilu: truwer/library.lua")
+  btn("truwer.st.update", 10, 130, 180, "Sprawdź aktualizacje", function()
     truwer.updater.check(true)
   end)
 end
@@ -2127,20 +2136,21 @@ end
 -- Spiewanie, recytacja, odgrywanie scen krok po kroku z prompterem.
 -- Alias /truwer toggluje okno (jak togglePopup w dargoth); fala 5 doklada
 -- updater (wzorzec kalendarzy) z auto-check 10 s po starcie, pelna pomoc
--- w oknie (przycisk Pomoc) i ustawienia (override postaci).
+-- w oknie (przycisk Pomoc) i ustawienia; fala 7: jedna biblioteka per
+-- profil (profil = postac) z migracja bibliotek per-postac.
 
 truwer = truwer or {}
 
 do
 
-local PLUGIN_VERSION = "1.0.0m"
+local PLUGIN_VERSION = "1.0.1m"
 local PLUGIN_BUILD   = "08-09-2026"
 
 truwer.version = PLUGIN_VERSION
 truwer.build = PLUGIN_BUILD
 
 function truwer.banner()
-  return "Truwer " .. PLUGIN_VERSION .. " (build " .. PLUGIN_BUILD .. ") - port w trakcie budowy."
+  return "Truwer " .. PLUGIN_VERSION .. " (build " .. PLUGIN_BUILD .. ") - asystent scenek RP."
 end
 
 -- init: prefs + biblioteka z dysku profilu (jak init() w dargoth), potem GUI
