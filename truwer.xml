@@ -709,6 +709,155 @@ function core.openScene(id, mode)
   end
 end
 
+-- ---------------------------------------------------------------------------
+-- Edytor sceny (fala 3): akcje na biezacej scenie. Paritet z dargoth
+-- index.ts (addStep/insertStep/dupStep/removeStep/moveStep/changeType).
+-- Wszystkie: touch (zmodyfikowano = nowMs) + natychmiastowy saveLibrary
+-- (D25 — u nas brak debounce 300 ms z przegladarki). Akcje tekstowe nie
+-- renderuja — widget juz pokazuje wpisana wartosc (jak input w dargoth);
+-- strukturalne renderuje GUI po powrocie z akcji.
+-- ---------------------------------------------------------------------------
+
+local function touchScene(s) s.zmodyfikowano = core.nowMs() end
+
+-- D26: przelacznik trybu w naglowku sceny (dargoth buildSceneHeader).
+function core.setMode(mode)
+  local st = core.state
+  if st.mode == mode then return end
+  st.mode = mode
+  if mode == "play" then
+    local s = core.currentScene()
+    if s then
+      st.cursor = core.firstPlayable(s.kroki, 0)
+      core.primeBuffer()
+    end
+  else
+    core.stopPause()
+  end
+end
+
+function core.setTytul(tytul)
+  local s = core.currentScene()
+  if not s then return end
+  s.tytul = tostring(tytul)
+  touchScene(s)
+  core.saveLibrary()
+end
+
+function core.setAutor(autor)
+  local s = core.currentScene()
+  if not s then return end
+  s.autor = tostring(autor)
+  touchScene(s)
+  core.saveLibrary()
+end
+
+-- D21: commit na Enter z osadzonej linii; [\r\n]+ -&gt; spacja (jak textarea
+-- w dargoth, gdyby ktos wkleil tekst wielolinijkowy).
+function core.setStepText(i, txt)
+  local s = core.currentScene()
+  if not s then return end
+  local k = s.kroki[i]
+  if not k or (k.typ ~= "cmd" and k.typ ~= "nota") then return end
+  k.tekst = (tostring(txt):gsub("[\r\n]+", " "))
+  touchScene(s)
+  core.saveLibrary()
+end
+
+-- D24: puste albo nie-liczba -&gt; nil, liczba &gt;= 0 skonczona -&gt; wartosc
+-- (paritet z inputem liczbowym dargotha).
+function core.setStepSekundy(i, txt)
+  local s = core.currentScene()
+  if not s then return end
+  local k = s.kroki[i]
+  if not k or k.typ ~= "pauza" then return end
+  txt = tostring(txt)
+  local v = tonumber(txt)
+  if txt ~= "" and v ~= nil and v &gt;= 0 and v &lt; math.huge then
+    k.sekundy = v
+  else
+    k.sekundy = nil
+  end
+  touchScene(s)
+  core.saveLibrary()
+end
+
+local function newKrok(typ)
+  if typ == "pauza" then return { typ = "pauza" } end
+  if typ == "nota" then return { typ = "nota", tekst = "" } end
+  return { typ = "cmd", tekst = "" }
+end
+
+function core.addStep(typ)
+  local s = core.currentScene()
+  if not s then return end
+  s.kroki[#s.kroki + 1] = newKrok(typ)
+  touchScene(s)
+  core.saveLibrary()
+end
+
+-- pos 1-based: wstawia pusty cmd NA pozycji pos (GUI podaje i+1 = za wierszem).
+function core.insertStep(pos)
+  local s = core.currentScene()
+  if not s then return end
+  pos = tonumber(pos) or -1
+  if pos &lt; 1 or pos &gt; #s.kroki + 1 then return end
+  table.insert(s.kroki, pos, { typ = "cmd", tekst = "" })
+  touchScene(s)
+  core.saveLibrary()
+end
+
+function core.dupStep(i)
+  local s = core.currentScene()
+  if not s then return end
+  local k = s.kroki[i]
+  if not k then return end
+  local copy = {}
+  for key, v in pairs(k) do copy[key] = v end -- jak {...k} w dargoth
+  table.insert(s.kroki, i + 1, copy)
+  touchScene(s)
+  core.saveLibrary()
+end
+
+function core.removeStep(i)
+  local s = core.currentScene()
+  if not s then return end
+  if not s.kroki[i] then return end
+  table.remove(s.kroki, i)
+  touchScene(s)
+  core.saveLibrary()
+end
+
+function core.moveStep(i, dir)
+  local s = core.currentScene()
+  if not s then return end
+  local j = i + dir
+  if j &lt; 1 or j &gt; #s.kroki then return end -- brzegi: no-op (jak dargoth)
+  s.kroki[i], s.kroki[j] = s.kroki[j], s.kroki[i]
+  touchScene(s)
+  core.saveLibrary()
+end
+
+-- D22: paritet changeType — tekst zachowany tylko miedzy cmd/nota; wejscie
+-- w pauza traci tekst, wyjscie z pauzy daje tekst "".
+function core.changeType(i, typ)
+  local s = core.currentScene()
+  if not s then return end
+  local old = s.kroki[i]
+  if not old then return end
+  local oldText = ""
+  if old.typ == "cmd" or old.typ == "nota" then oldText = old.tekst or "" end
+  if typ == "pauza" then
+    s.kroki[i] = { typ = "pauza" }
+  elseif typ == "nota" then
+    s.kroki[i] = { typ = "nota", tekst = oldText }
+  else
+    s.kroki[i] = { typ = "cmd", tekst = oldText }
+  end
+  touchScene(s)
+  core.saveLibrary()
+end
+
 function core.stopPause()
   local st = core.state
   if st._pauseTimerId ~= nil then
@@ -1074,17 +1223,22 @@ end
 			<name>truwer_gui</name>
 			<eventHandlerList />
 			<script>
--- truwer - GUI okna i biblioteki (fala 2): Geyser.Adjustable.Container.
+-- truwer - GUI okna, biblioteki (fala 2) i edytora sceny (fala 3):
+-- Geyser.Adjustable.Container + osadzone Geyser.CommandLine.
 -- Render odtwarza widok ze stanu rdzenia (truwer.core.state); widgety sa
 -- pulowane w rejestrze gui.managed (Mudlet nie kasuje labeli — chowamy
--- nadmiar przy kazdym renderze). Widoki edycji/odgrywania: zastepcze
--- (pelne edytor/prompter w falach 3/4).
+-- nadmiar przy kazdym renderze). Widok odgrywania: zastepczy (prompter
+-- w fali 4).
 truwer.gui = truwer.gui or {}
 local gui = truwer.gui
 local core = truwer.core
 
 local ROW_H = 66
-local CONFIRM_TTL_MS = 4000 -- D18: dwuklik zamiast window.confirm
+local ED_ROW_H = 30 -- wiersz kroku w edytorze (fala 3)
+local CONFIRM_TTL_MS = 4000 -- D18/D23: dwuklik zamiast window.confirm
+-- D22/D27: cykl typu kroku (Mudlet nie ma listy rozwijanej)
+local TYPE_CYCLE = { cmd = "pauza", pauza = "nota", nota = "cmd" }
+local TYPE_LABEL = { cmd = "Typ: komenda", pauza = "Typ: pauza", nota = "Typ: notatka" }
 
 gui.managed = gui.managed or {}
 gui.confirm = gui.confirm or { id = nil, at = 0 }
@@ -1116,6 +1270,30 @@ end
 local function txt(name, x, y, wd, h, text)
   local l = mk(name, x, y, wd, h)
   setLabelText(name, text)
+  l:show()
+  return l
+end
+
+-- Osadzona linia komend (D21), pulowana w gui.managed jak labele.
+local function mkLine(name, x, y, wd, h)
+  local l = gui.managed[name]
+  if not l then
+    l = Geyser.CommandLine:new({
+      name = name, x = x, y = y, width = wd, height = h, container = gui.win,
+    })
+    gui.managed[name] = l
+  else
+    l:move(x, y)
+    l:resize(wd, h)
+  end
+  return l
+end
+
+-- Linia z wstepnym tekstem i commitem na Enter (setAction).
+local function line(name, x, y, wd, text, fn)
+  local l = mkLine(name, x, y, wd, 24)
+  l:setText(text)
+  l:setAction(fn)
   l:show()
   return l
 end
@@ -1152,9 +1330,24 @@ local function confirmLabel(id, base)
   return base
 end
 
+-- Dwuklik usuwania kroku (D23): klucz potwierdzenia per pozycja wiersza.
+local function clickDeleteStep(i)
+  local key = "step:" .. i
+  local now = core.nowMs()
+  if gui.confirm.id == key and now - gui.confirm.at &lt; CONFIRM_TTL_MS then
+    gui.confirm.id = nil
+    core.removeStep(i)
+  else
+    gui.confirm.id = key
+    gui.confirm.at = now
+  end
+  gui.render()
+end
+
 local function renderLibrary()
   local st = core.state
   btn("truwer.hdr.new", 10, 6, 110, "Nowa scena", function()
+    gui.addType = "cmd" -- typ paska dodawania resetowany przy wejsciu (D27)
     core.newScene()
     gui.render()
   end)
@@ -1212,10 +1405,12 @@ local function renderLibrary()
     txt("truwer.row." .. i .. ".meta", 46, y + 22, 500, 16, meta)
     local ya = y + 42
     btn("truwer.row." .. i .. ".edit", 46, ya, 64, "Edycja", function()
+      gui.addType = "cmd" -- reset typu paska przy wejsciu (D27)
       core.openScene(sid, "edit")
       gui.render()
     end)
     btn("truwer.row." .. i .. ".play", 114, ya, 76, "Odtwarzaj", function()
+      gui.addType = "cmd"
       core.openScene(sid, "play")
       gui.render()
     end)
@@ -1234,6 +1429,99 @@ local function renderLibrary()
     btn("truwer.row." .. i .. ".del", 356, ya, 80, confirmLabel(sid, "Usuń"),
       function() clickDeleteScene(sid) end)
   end
+end
+
+-- Edytor sceny (fala 3): wiersze krokow na osadzonych liniach komend
+-- (D21). Uklad miesci sie w oknie 640 px: num | typ | tresc | akcje.
+local function renderEdit()
+  local st = core.state
+  local s = core.currentScene()
+  if not s then
+    st.view = "library"
+    return renderLibrary()
+  end
+
+  btn("truwer.ed.back", 10, 6, 90, "Biblioteka", function()
+    core.goLibrary()
+    gui.render()
+  end)
+  btn("truwer.ed.help", 560, 6, 70, "Pomoc", function()
+    truwer.onPomoc()
+  end)
+  txt("truwer.ed.modelbl", 10, 36, 44, 24, "Tryb:")
+  btn("truwer.ed.mode.edit", 60, 36, 90, "Edycja", function()
+    core.setMode("edit")
+    gui.render()
+  end)
+  btn("truwer.ed.mode.play", 156, 36, 110, "Odtwarzanie", function()
+    core.setMode("play")
+    gui.render()
+  end)
+
+  line("truwer.ed.tytul", 10, 66, 620, s.tytul or "", function(t)
+    core.setTytul(t)
+  end)
+  line("truwer.ed.autor", 10, 94, 620, s.autor or "", function(t)
+    core.setAutor(t)
+  end)
+  txt("truwer.ed.hint", 10, 122, 620, 40,
+    "warianty komendy: a|b|c — prompter wylosuje jedną. Pauza: /pauza "
+      .. "lub /pauza N. Notatka: wiersz typu notatka (nie wysyłana).")
+
+  if #s.kroki == 0 then
+    txt("truwer.ed.empty", 10, 168, 620, 24, "Brak kroków. Dodaj poniżej.")
+  end
+  for i, k in ipairs(s.kroki) do
+    local y = 168 + (i - 1) * ED_ROW_H
+    local p = "truwer.ed.row." .. i
+    local typ = k.typ
+    txt(p .. ".num", 10, y, 22, 24, i .. ".")
+    btn(p .. ".type", 36, y, 92, TYPE_LABEL[typ] or tostring(typ), function()
+      core.changeType(i, TYPE_CYCLE[typ])
+      gui.render()
+    end)
+    if typ == "pauza" then
+      txt(p .. ".pauselbl", 132, y, 50, 24, "PAUZA")
+      line(p .. ".sek", 186, y, 60,
+        k.sekundy ~= nil and core.fmtNum(k.sekundy) or "", function(t)
+          core.setStepSekundy(i, t)
+        end)
+    else
+      line(p .. ".text", 132, y, 270, k.tekst or "", function(t)
+        core.setStepText(i, t)
+      end)
+    end
+    btn(p .. ".up", 408, y, 22, "^", function()
+      core.moveStep(i, -1)
+      gui.render()
+    end)
+    btn(p .. ".down", 434, y, 22, "v", function()
+      core.moveStep(i, 1)
+      gui.render()
+    end)
+    btn(p .. ".ins", 460, y, 50, "Wstaw", function()
+      core.insertStep(i + 1)
+      gui.render()
+    end)
+    btn(p .. ".dup", 514, y, 52, "Powiel", function()
+      core.dupStep(i)
+      gui.render()
+    end)
+    btn(p .. ".del", 570, y, 60, confirmLabel("step:" .. i, "X"), function()
+      clickDeleteStep(i)
+    end)
+  end
+
+  local ay = 168 + #s.kroki * ED_ROW_H + 6
+  gui.addType = gui.addType or "cmd"
+  btn("truwer.ed.add.type", 10, ay, 110, TYPE_LABEL[gui.addType], function()
+    gui.addType = TYPE_CYCLE[gui.addType]
+    gui.render()
+  end)
+  btn("truwer.ed.add.btn", 126, ay, 100, "Dodaj krok", function()
+    core.addStep(gui.addType)
+    gui.render()
+  end)
 end
 
 local function renderStub()
@@ -1263,7 +1551,14 @@ end
 function gui.render()
   if not gui.win then return end
   for _, wg in pairs(gui.managed) do wg:hide() end
-  if core.state.view == "library" then renderLibrary() else renderStub() end
+  local st = core.state
+  if st.view == "library" then
+    renderLibrary()
+  elseif st.view == "scene" and st.mode == "edit" then
+    renderEdit()
+  else
+    renderStub() -- prompter (tryb play): fala 4
+  end
   gui.renderStatus()
   txt("truwer.footer", 10, 534, 620, 20,
     "v" .. tostring(truwer.version) .. " | " .. tostring(truwer.build))
