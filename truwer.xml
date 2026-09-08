@@ -625,8 +625,16 @@ end
 -- profilu to norma. Nieosloniety blad w loadPrefs/loadLibrary przerywal
 -- cala reszte truwer_init (GUI nigdy nie powstawalo). Wszystkie odczyty
 -- inicjalizacyjne ida przez te oslone.
+-- Fala 10: realny table.load NIC nie zwraca - rozpakowuje tables[1] z
+-- pliku do podanej tabeli (albo do _G), bo table.save owija dane
+-- dodatkowa tablica (format pickle). Odczyt przez wartosc zwrotna dawal
+-- zawsze nil, wiec biblioteka i prefs "ginely" przy kazdym restarcie
+-- profilu (plik na dysku byl; wykryte na zywym mudlet-web). Odczyt idzie
+-- przez tabele docelowa, jak kontenery okien Geyser przy wczytywaniu
+-- zapisanego polozenia.
 local function tryLoad(path)
-  local ok, t = pcall(table.load, path)
+  local t = {}
+  local ok = pcall(table.load, path, t)
   if ok then return t end
   return nil
 end
@@ -637,7 +645,7 @@ function core.migrateLegacyLibrary()
   if #legacy == 0 then return false end
   local byId = {}
   for _, p in ipairs(legacy) do
-    local arr = arrayValues(table.load(p))
+    local arr = arrayValues(tryLoad(p))
     if arr then
       for _, v in ipairs(arr) do
         local ns = core.normScene(v)
@@ -2008,9 +2016,12 @@ local pendingVersion = nil
 local manual = false
 
 local function cacheRead()
+  -- Fala 10: realny table.load NIC nie zwraca (rozpakowuje do t / _G),
+  -- wiec warunek na wartosc zwrotna uniewaznial cache: throttle 8 h
+  -- nigdy nie dzialal i kazdy start profilu strzelal do GitHuba.
   local t = {}
-  local ok, res = pcall(table.load, UPDATE_CACHE_PATH, t)
-  if ok and res then return t end
+  local ok = pcall(table.load, UPDATE_CACHE_PATH, t)
+  if ok then return t end
   return {}
 end
 
