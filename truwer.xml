@@ -667,6 +667,17 @@ core.state = core.state or {
   autoCursor = true,
   pauseRemainMs = nil,
 }
+-- Widok GUI (fala 2): library/scene/help jak w dargoth (view/mode),
+-- zaznaczenie do operacji zbiorczych i linia statusu. Domyslne wartosci
+-- doklejane lagodnie (przeladowanie skryptu nie gubi stanu).
+if core.state.view == nil then core.state.view = "library" end
+if core.state.mode == nil then core.state.mode = "edit" end
+if core.state.selectedIds == nil then core.state.selectedIds = {} end
+if core.state.statusMsg == nil then core.state.statusMsg = nil end
+if core.state.statusKind == nil then core.state.statusKind = nil end
+
+-- publiczny odczyt zegara dla GUI (dwuklik D18 mierzy TTL tym samym zegarem)
+core.nowMs = nowMs
 
 function core.currentScene()
   for _, s in ipairs(core.state.library) do
@@ -687,6 +698,8 @@ end
 
 function core.openScene(id, mode)
   core.state.currentId = id
+  core.state.view = "scene" -- dargoth: view="scene", importOpen=false
+  core.state.mode = mode
   if mode == "play" then
     local s = core.currentScene()
     if s then
@@ -796,6 +809,494 @@ function core.wyslijBufor()
   if not ok then return nil, "Blad wyslania komendy." end
   return text
 end
+
+-- ---------------------------------------------------------------------------
+-- Widok biblioteki i akcje (fala 2): mirror akcji index.ts (onNewScene,
+-- duplicateScene, deleteScene, toggleSelected, selectAll, eksport/import).
+-- Potwierdzenia usuwania sa po stronie GUI (dwuklik, D18) — rdzen wykonuje.
+-- ---------------------------------------------------------------------------
+core.STATUS_TTL_MS = 4000 -- jak STATUS_TTL_MS w index.ts
+
+function core.fmtDate(ms)
+  local t = os.date("*t", math.floor(ms / 1000))
+  local function p2(n) return string.format("%02d", n) end
+  return p2(t.day) .. "-" .. p2(t.month) .. "-" .. tostring(t.year)
+    .. " " .. p2(t.hour) .. ":" .. p2(t.min)
+end
+
+function core.bulkStamp()
+  local t = os.date("*t", math.floor(nowMs() / 1000))
+  local function p2(n) return string.format("%02d", n) end
+  return p2(t.day) .. "-" .. p2(t.month) .. "-" .. tostring(t.year)
+end
+
+-- Status z TTL (mirror showStatus): wpis + timer czyszczacy po 4 s.
+-- GUI odmalowuje linie statusu przez hook truwer.gui.renderStatus.
+function core._statusClear()
+  local st = core.state
+  st._statusTimerId = nil
+  st.statusMsg = nil
+  st.statusKind = nil
+  if truwer.gui and truwer.gui.renderStatus then truwer.gui.renderStatus() end
+end
+
+function core.showStatus(msg, kind)
+  local st = core.state
+  st.statusMsg = msg
+  st.statusKind = kind or "info"
+  if st._statusTimerId ~= nil then
+    local clear = core._clearTimer
+    if clear == nil and type(killTimer) == "function" then clear = killTimer end
+    if clear then pcall(clear, st._statusTimerId) end
+    st._statusTimerId = nil
+  end
+  local arm = core._armTimer
+  if arm == nil and type(tempTimer) == "function" then
+    arm = function(fn) return tempTimer(core.STATUS_TTL_MS / 1000, fn) end
+  end
+  if arm then st._statusTimerId = arm(function() core._statusClear() end) end
+  if truwer.gui and truwer.gui.renderStatus then truwer.gui.renderStatus() end
+end
+
+-- Biblioteka posortowana po zmodyfikowano MALEJACO, stabilnie (V8 sort jest
+-- stabilny; Lua table.sort nie — doklejamy indeks jako tie-break).
+function core.sortedLibrary()
+  local items = {}
+  local idx = {}
+  for i, s in ipairs(core.state.library) do
+    items[i] = s
+    idx[s] = i
+  end
+  table.sort(items, function(a, b)
+    if a.zmodyfikowano ~= b.zmodyfikowano then
+      return a.zmodyfikowano &gt; b.zmodyfikowano
+    end
+    return idx[a] &lt; idx[b]
+  end)
+  return items
+end
+
+function core.toggleSelected(id)
+  local sel = core.state.selectedIds
+  if sel[id] then sel[id] = nil else sel[id] = true end
+end
+
+function core.selectedScenes()
+  local out = {}
+  for _, s in ipairs(core.state.library) do
+    if core.state.selectedIds[s.id] then out[#out + 1] = s end
+  end
+  return out
+end
+
+function core.selectAll(items)
+  local sel = core.state.selectedIds
+  local allSel = #items &gt; 0
+  for _, s in ipairs(items) do
+    if not sel[s.id] then allSel = false break end
+  end
+  for k in pairs(sel) do sel[k] = nil end
+  if not allSel then
+    for _, s in ipairs(items) do sel[s.id] = true end
+  end
+end
+
+function core.goLibrary()
+  core.stopPause()
+  core.state.view = "library"
+end
+
+function core.newScene()
+  local now = nowMs()
+  local s = {
+    id = core.genId(), tytul = "Nowa scena", autor = "",
+    utworzono = now, zmodyfikowano = now, kroki = {},
+  }
+  core.state.library[#core.state.library + 1] = s
+  core.saveLibrary()
+  core.openScene(s.id, "edit")
+  return s
+end
+
+function core.duplicateScene(id)
+  local src
+  for _, s in ipairs(core.state.library) do
+    if s.id == id then src = s break end
+  end
+  if not src then return nil end
+  local now = nowMs()
+  local kroki = {}
+  for i, k in ipairs(src.kroki) do
+    local nk = {}
+    for key, v in pairs(k) do nk[key] = v end
+    kroki[i] = nk
+  end
+  local tytul = src.tytul
+  if tytul == nil or tytul == "" then tytul = "Scena" end -- JS: s.tytul || "Scena"
+  local copy = {
+    id = core.genId(), tytul = tytul .. " (kopia)", autor = src.autor,
+    utworzono = now, zmodyfikowano = now, kroki = kroki,
+  }
+  core.state.library[#core.state.library + 1] = copy
+  core.saveLibrary()
+  core.showStatus("Utworzono kopię.", "success")
+  return copy
+end
+
+function core.deleteScene(id)
+  local st = core.state
+  local found = false
+  local out = {}
+  for _, s in ipairs(st.library) do
+    if s.id == id then found = true else out[#out + 1] = s end
+  end
+  if not found then return false end
+  st.library = out
+  st.selectedIds[id] = nil
+  if st.currentId == id then
+    st.currentId = nil
+    st.view = "library"
+  end
+  core.saveLibrary()
+  core.showStatus("Usunięto scenę.", "success")
+  return true
+end
+
+function core.deleteSelected()
+  local scenes = core.selectedScenes()
+  if #scenes == 0 then return 0 end
+  local doomed = {}
+  for _, s in ipairs(scenes) do doomed[s.id] = true end
+  local st = core.state
+  local out = {}
+  for _, s in ipairs(st.library) do
+    if not doomed[s.id] then out[#out + 1] = s end
+  end
+  st.library = out
+  if st.currentId ~= nil and doomed[st.currentId] then
+    st.currentId = nil
+    st.view = "library"
+  end
+  for k in pairs(st.selectedIds) do st.selectedIds[k] = nil end
+  core.saveLibrary()
+  core.showStatus("Usunięto sceny: " .. #scenes .. ".", "success")
+  return #scenes
+end
+
+-- Eksport (D17): zapis do &lt;profil&gt;/truwer/eksport/, status z pelna sciezka
+-- (odpowiednik pobierania pliku w przegladarce).
+local function exportDir()
+  return profileDir() .. "/truwer/eksport"
+end
+
+local function writeTextFile(path, content)
+  local ok, err = pcall(function()
+    local fh = assert(io.open(path, "w"))
+    fh:write(content)
+    assert(fh:close())
+  end)
+  if not ok then return nil, tostring(err) end
+  return true
+end
+
+function core.exportScene(id, fmt)
+  local s
+  for _, x in ipairs(core.state.library) do
+    if x.id == id then s = x break end
+  end
+  if not s then return nil, "Brak sceny." end
+  local content
+  if fmt == "json" then content = core.jsonFromScene(s)
+  else content = core.dslFromKroki(s.kroki) end
+  local path = exportDir() .. "/" .. core.safeName(s.tytul) .. "." .. fmt
+  ensureDir()
+  local ok, err = writeTextFile(path, content)
+  if not ok then
+    core.showStatus("Błąd eksportu pliku.", "error")
+    return nil, err
+  end
+  core.showStatus("Wyeksportowano: " .. path, "success")
+  return path
+end
+
+function core.exportSelected(fmt)
+  local scenes = core.selectedScenes()
+  if #scenes == 0 then return nil end -- dargoth: wczesny return (disabled)
+  local content
+  if fmt == "json" then content = core.bulkJson(scenes)
+  else content = core.bulkTxt(scenes) end
+  local path = exportDir() .. "/truwer-sceny-" .. core.bulkStamp() .. "." .. fmt
+  ensureDir()
+  local ok, err = writeTextFile(path, content)
+  if not ok then
+    core.showStatus("Błąd eksportu pliku.", "error")
+    return nil, err
+  end
+  core.showStatus("Wyeksportowano: " .. path, "success")
+  return path
+end
+
+-- Import z pliku (D16): sciezka z invokeFileDialog; anulowany dialog = nil.
+-- Semantyka statusow identyczna jak onImportText w dargoth.
+function core.importFile(path)
+  if path == nil or path == "" then return nil end
+  local fh = io.open(tostring(path), "r")
+  if not fh then
+    core.showStatus("Błąd importu pliku.", "error")
+    return nil
+  end
+  local text = fh:read("*a")
+  fh:close()
+  local name = tostring(path):gsub(".*[/\\]", "")
+  local ok, scenes = pcall(core.importScenes, text, core.baseName(name), name)
+  if not ok then
+    core.showStatus("Błąd importu pliku.", "error")
+    return nil
+  end
+  if #scenes == 0 then
+    core.showStatus("Pusty import.", "error")
+    return 0
+  end
+  core.addScenes(scenes)
+  if #scenes == 1 then
+    core.openScene(scenes[1].id, "edit")
+    core.showStatus("Zaimportowano scenę.", "success")
+  else
+    for k in pairs(core.state.selectedIds) do core.state.selectedIds[k] = nil end
+    core.state.view = "library"
+    core.showStatus("Zaimportowano sceny: " .. #scenes .. ".", "success")
+  end
+  return #scenes
+end
+			</script>
+		</Script>
+		<Script isActive="yes" isFolder="no">
+			<name>truwer_gui</name>
+			<eventHandlerList />
+			<script>
+-- truwer - GUI okna i biblioteki (fala 2): Geyser.Adjustable.Container.
+-- Render odtwarza widok ze stanu rdzenia (truwer.core.state); widgety sa
+-- pulowane w rejestrze gui.managed (Mudlet nie kasuje labeli — chowamy
+-- nadmiar przy kazdym renderze). Widoki edycji/odgrywania: zastepcze
+-- (pelne edytor/prompter w falach 3/4).
+truwer.gui = truwer.gui or {}
+local gui = truwer.gui
+local core = truwer.core
+
+local ROW_H = 66
+local CONFIRM_TTL_MS = 4000 -- D18: dwuklik zamiast window.confirm
+
+gui.managed = gui.managed or {}
+gui.confirm = gui.confirm or { id = nil, at = 0 }
+gui.open = gui.open or false
+
+-- Label z rejestru (tworzy raz, potem przesuwa/skaluje istniejacy).
+local function mk(name, x, y, wd, h)
+  local l = gui.managed[name]
+  if not l then
+    l = Geyser.Label:new({
+      name = name, x = x, y = y, width = wd, height = h, container = gui.win,
+    })
+    gui.managed[name] = l
+  else
+    l:move(x, y)
+    l:resize(wd, h)
+  end
+  return l
+end
+
+local function btn(name, x, y, wd, label, fn)
+  local l = mk(name, x, y, wd, 24)
+  setLabelText(name, label)
+  l:setClickCallback(fn)
+  l:show()
+  return l
+end
+
+local function txt(name, x, y, wd, h, text)
+  local l = mk(name, x, y, wd, h)
+  setLabelText(name, text)
+  l:show()
+  return l
+end
+
+-- Dwuklik usuwania (D18): pierwszy klik uzbraja na 4 s, drugi wykonuje.
+local function clickDeleteScene(id)
+  local now = core.nowMs()
+  if gui.confirm.id == id and now - gui.confirm.at &lt; CONFIRM_TTL_MS then
+    gui.confirm.id = nil
+    core.deleteScene(id)
+  else
+    gui.confirm.id = id
+    gui.confirm.at = now
+  end
+  gui.render()
+end
+
+local function clickDeleteSelected()
+  local now = core.nowMs()
+  if gui.confirm.id == "__bulk__" and now - gui.confirm.at &lt; CONFIRM_TTL_MS then
+    gui.confirm.id = nil
+    core.deleteSelected()
+  else
+    gui.confirm.id = "__bulk__"
+    gui.confirm.at = now
+  end
+  gui.render()
+end
+
+local function confirmLabel(id, base)
+  if gui.confirm.id == id and core.nowMs() - gui.confirm.at &lt; CONFIRM_TTL_MS then
+    return "Na pewno?"
+  end
+  return base
+end
+
+local function renderLibrary()
+  local st = core.state
+  btn("truwer.hdr.new", 10, 6, 110, "Nowa scena", function()
+    core.newScene()
+    gui.render()
+  end)
+  btn("truwer.hdr.import", 126, 6, 110, "Importuj plik", function()
+    core.importFile(invokeFileDialog(false, getMudletHomeDir()))
+    gui.render()
+  end)
+  btn("truwer.hdr.help", 560, 6, 70, "Pomoc", function()
+    truwer.onPomoc()
+  end)
+
+  local items = core.sortedLibrary()
+  if #items == 0 then
+    txt("truwer.empty", 10, 40, 620, 24,
+      "Brak zapisanych scen. Utwórz nową lub zaimportuj.")
+    return
+  end
+
+  local selN = 0
+  for _ in pairs(st.selectedIds) do selN = selN + 1 end
+  local allSel = selN == #items
+  btn("truwer.bulk.all", 10, 36, 140,
+    allSel and "Odznacz wszystkie" or "Zaznacz wszystkie", function()
+      core.selectAll(core.sortedLibrary())
+      gui.render()
+    end)
+  txt("truwer.bulk.count", 156, 36, 140, 24, "zaznaczone: " .. selN .. "/" .. #items)
+  btn("truwer.bulk.json", 318, 36, 100, "Pobierz JSON", function()
+    core.exportSelected("json")
+    gui.render()
+  end)
+  btn("truwer.bulk.txt", 424, 36, 100, "Pobierz TXT", function()
+    core.exportSelected("txt")
+    gui.render()
+  end)
+  btn("truwer.bulk.del", 530, 36, 100, confirmLabel("__bulk__", "Usuń zaznaczone"),
+    clickDeleteSelected)
+
+  for i, s in ipairs(items) do
+    local y = 66 + (i - 1) * ROW_H
+    local sid = s.id -- domkniecie dla callbackow
+    btn("truwer.row." .. i .. ".sel", 10, y, 30,
+      st.selectedIds[sid] and "[x]" or "[ ]", function()
+        core.toggleSelected(sid)
+        gui.render()
+      end)
+    local tytul = s.tytul
+    if tytul == nil or tytul == "" then tytul = "(bez tytułu)" end
+    txt("truwer.row." .. i .. ".title", 46, y, 400, 20, tytul)
+    local meta = core.fmtDate(s.zmodyfikowano) .. " | "
+    if s.autor ~= nil and s.autor ~= "" then
+      meta = meta .. "autor: " .. s.autor .. " | "
+    end
+    meta = meta .. "kroki: " .. #s.kroki
+    txt("truwer.row." .. i .. ".meta", 46, y + 22, 500, 16, meta)
+    local ya = y + 42
+    btn("truwer.row." .. i .. ".edit", 46, ya, 64, "Edycja", function()
+      core.openScene(sid, "edit")
+      gui.render()
+    end)
+    btn("truwer.row." .. i .. ".play", 114, ya, 76, "Odtwarzaj", function()
+      core.openScene(sid, "play")
+      gui.render()
+    end)
+    btn("truwer.row." .. i .. ".dup", 194, ya, 60, "Powiel", function()
+      core.duplicateScene(sid)
+      gui.render()
+    end)
+    btn("truwer.row." .. i .. ".json", 258, ya, 48, "JSON", function()
+      core.exportScene(sid, "json")
+      gui.render()
+    end)
+    btn("truwer.row." .. i .. ".txt", 310, ya, 42, "TXT", function()
+      core.exportScene(sid, "txt")
+      gui.render()
+    end)
+    btn("truwer.row." .. i .. ".del", 356, ya, 80, confirmLabel(sid, "Usuń"),
+      function() clickDeleteScene(sid) end)
+  end
+end
+
+local function renderStub()
+  local st = core.state
+  local s = core.currentScene()
+  if not s then
+    st.view = "library"
+    return renderLibrary()
+  end
+  local tytul = s.tytul
+  if tytul == nil or tytul == "" then tytul = "(bez tytułu)" end
+  txt("truwer.stub.title", 10, 10, 620, 24, "Scena: " .. tytul)
+  txt("truwer.stub.info", 10, 40, 620, 24, st.mode == "play"
+    and "Widok odgrywania (prompter) dojdzie w fali 4."
+    or "Widok edycji dojdzie w fali 3.")
+  btn("truwer.stub.back", 10, 90, 90, "Powrót", function()
+    core.goLibrary()
+    gui.render()
+  end)
+end
+
+function gui.renderStatus()
+  if not gui.win then return end
+  txt("truwer.status", 10, 508, 620, 20, core.state.statusMsg or "")
+end
+
+function gui.render()
+  if not gui.win then return end
+  for _, wg in pairs(gui.managed) do wg:hide() end
+  if core.state.view == "library" then renderLibrary() else renderStub() end
+  gui.renderStatus()
+  txt("truwer.footer", 10, 534, 620, 20,
+    "v" .. tostring(truwer.version) .. " | " .. tostring(truwer.build))
+end
+
+function gui.build()
+  if gui.win then return end
+  gui.win = Geyser.Adjustable.Container:new({
+    name = "truwer",
+    x = 40, y = 40, width = 640, height = 560,
+    titleText = "Truwer - asystent odgrywania scen",
+  })
+  gui.win:hide() -- start ukryty (jak zamkniety popup w dargoth)
+  gui.render()
+end
+
+function gui.toggle()
+  if not gui.win then return end
+  if gui.open then
+    gui.open = false
+    gui.win:hide()
+    return
+  end
+  core.loadPrefs()
+  core.loadLibrary() -- swieze z dysku profilu (jak togglePopup w dargoth)
+  if core.state.currentId ~= nil and not core.currentScene() then
+    core.state.currentId = nil
+    core.state.view = "library"
+  end
+  gui.render()
+  gui.open = true
+  gui.win:show()
+end
 			</script>
 		</Script>
 		<Script isActive="yes" isFolder="no">
@@ -804,8 +1305,9 @@ end
 			<script>
 -- truwer - asystent scenek RP dla Mudleta (port pluginu Dargoth/WWW).
 -- Spiewanie, recytacja, odgrywanie scen krok po kroku z prompterem.
--- Fala 0: szkielet pakietu (banner wersji + pomoc). Rdzen, biblioteka,
--- prompter i edytor GUI laduja w kolejnych falach.
+-- Fala 2: okno Geyser (Adjustable.Container) + biblioteka GUI. Alias
+-- /truwer toggluje okno (jak togglePopup w dargoth); edytor i prompter
+-- laduja w falach 3/4, updater i pelna pomoc w fali 5.
 
 truwer = truwer or {}
 
@@ -821,16 +1323,21 @@ function truwer.banner()
   return "Truwer " .. PLUGIN_VERSION .. " (build " .. PLUGIN_BUILD .. ") - port w trakcie budowy."
 end
 
+-- init: prefs + biblioteka z dysku profilu (jak init() w dargoth), potem GUI
+truwer.core.loadPrefs()
+truwer.core.loadLibrary()
+truwer.gui.build()
+
 function truwer.onAlias()
-  cecho("&lt;green&gt;" .. truwer.banner() .. "&lt;reset&gt;\n")
+  truwer.gui.toggle()
 end
 
 function truwer.onPomoc()
   cecho("&lt;green&gt;" .. truwer.banner() .. "&lt;reset&gt;\n")
   cecho("Aliasy:\n")
-  cecho("  &lt;yellow&gt;/truwer&lt;reset&gt; - banner wersji\n")
+  cecho("  &lt;yellow&gt;/truwer&lt;reset&gt; - otwiera/zamyka okno truwera\n")
   cecho("  &lt;yellow&gt;/truwer pomoc&lt;reset&gt; - ten tekst\n")
-  cecho("Pelna pomoc i alias /truwer aktualizuj dojda z updaterem w fali 5.\n")
+  cecho("Pelna pomoc dojdzie z updaterem w fali 5.\n")
 end
 
 end
