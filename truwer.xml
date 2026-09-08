@@ -1444,7 +1444,11 @@ end
 -- Linia z wstepnym tekstem i commitem na Enter (setAction).
 local function line(name, x, y, wd, text, fn)
   local l = mkLine(name, x, y, wd, 24)
-  l:setText(text)
+  -- Fala 9b: realny Geyser.CommandLine (desktop i mudlet-web) NIE MA
+  -- setText; ustawienie tekstu to clear() + append(t)
+  -- (clearCmdLine/appendCmdLine).
+  l:clear()
+  l:append(text)
   l:setAction(fn)
   l:show()
   return l
