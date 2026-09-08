@@ -908,6 +908,47 @@ function core.activateStep(i)
 end
 
 -- ---------------------------------------------------------------------------
+-- Prompter (fala 4): etykiety krokow i akcje panelu. Paritet z dargoth
+-- (stepLabel / input textarea / Losuj ponownie / checkbox autoCursor).
+-- ---------------------------------------------------------------------------
+
+-- D29: stepLabel — pauza bez sufiksu gdy sekundy 0/nil (0 jest falsy w JS).
+function core.stepLabel(k)
+  if k.typ == "pauza" then
+    if k.sekundy ~= nil and k.sekundy ~= 0 then
+      return "PAUZA " .. core.fmtNum(k.sekundy) .. "s"
+    end
+    return "PAUZA"
+  end
+  if k.typ == "nota" then return "# " .. (k.tekst or "") end
+  local t = k.tekst or ""
+  if t == "" then return "(pusta komenda)" end
+  return t
+end
+
+-- D28: bufor promptera; [\r\n]+ -&gt; spacja (paritet z textarea dargotha).
+function core.setPlayBuffer(txt)
+  core.state.playBuffer = (tostring(txt):gsub("[\r\n]+", " "))
+end
+
+-- Losuj ponownie (tylko krok cmd z wariantami — GUI pokazuje przycisk
+-- wylacznie wtedy; rdzen i tak sprawdza).
+function core.rerollVariant()
+  local s = core.currentScene()
+  if not s then return end
+  local k = s.kroki[core.state.cursor + 1]
+  if not k or k.typ ~= "cmd" then return end
+  if #core.splitVariants(k.tekst) &lt; 2 then return end
+  core.state.playBuffer = core.pickVariant(k.tekst)
+end
+
+-- D31: toggle autoCursor z natychmiastowym zapisem prefs (jak saveAuto()).
+function core.setAutoCursor(v)
+  core.state.autoCursor = not not v
+  core.savePrefs()
+end
+
+-- ---------------------------------------------------------------------------
 -- Odliczanie pauzy (mirror startPauseTimer/stopPauseTimer; COUNTDOWN_TICK_MS
 -- = 200). Produkcja: one-shot tempTimer uzbrajany ponownie po kazdym ticku
 -- (rownowazne setInterval z JS). Koniec odliczania: tylko przesuniecie
@@ -930,7 +971,12 @@ function core._pauseTick()
     st._pauseTimerId = nil
     st._pauseStart = nil
     st._pauseTotal = nil
-    if st.autoCursor then core.advance() end
+    if st.autoCursor then
+      core.advance()
+      -- D30: auto-przejscie musi odmalowac prompter (nowy krok / kolejna
+      -- pauza startuje z renderu, jak buildPlayPanel w dargoth).
+      if truwer.gui and truwer.gui.render then truwer.gui.render() end
+    end
   else
     local arm = core._armTimer
     if arm == nil and type(tempTimer) == "function" then
@@ -938,6 +984,9 @@ function core._pauseTick()
     end
     if arm then st._pauseTimerId = arm(function() core._pauseTick() end) end
   end
+  -- D30: odswiez same etykiete odliczania (bez pelnego renderu — pelny
+  -- render restartowalby pauze, jak render() w dargoth).
+  if truwer.gui and truwer.gui.renderCountdown then truwer.gui.renderCountdown() end
 end
 
 function core.fmtCountdown(remMs)
@@ -1223,12 +1272,12 @@ end
 			<name>truwer_gui</name>
 			<eventHandlerList />
 			<script>
--- truwer - GUI okna, biblioteki (fala 2) i edytora sceny (fala 3):
--- Geyser.Adjustable.Container + osadzone Geyser.CommandLine.
+-- truwer - GUI okna, biblioteki (fala 2), edytora sceny (fala 3)
+-- i promptera (fala 4): Geyser.Adjustable.Container, osadzone
+-- Geyser.CommandLine, lista krokow w Geyser.ScrollBox.
 -- Render odtwarza widok ze stanu rdzenia (truwer.core.state); widgety sa
 -- pulowane w rejestrze gui.managed (Mudlet nie kasuje labeli — chowamy
--- nadmiar przy kazdym renderze). Widok odgrywania: zastepczy (prompter
--- w fali 4).
+-- nadmiar przy kazdym renderze).
 truwer.gui = truwer.gui or {}
 local gui = truwer.gui
 local core = truwer.core
@@ -1245,11 +1294,13 @@ gui.confirm = gui.confirm or { id = nil, at = 0 }
 gui.open = gui.open or false
 
 -- Label z rejestru (tworzy raz, potem przesuwa/skaluje istniejacy).
-local function mk(name, x, y, wd, h)
+-- container: domyslnie okno; wiersze listy promptera laduja w ScrollBox.
+local function mk(name, x, y, wd, h, container)
   local l = gui.managed[name]
   if not l then
     l = Geyser.Label:new({
-      name = name, x = x, y = y, width = wd, height = h, container = gui.win,
+      name = name, x = x, y = y, width = wd, height = h,
+      container = container or gui.win,
     })
     gui.managed[name] = l
   else
@@ -1259,16 +1310,16 @@ local function mk(name, x, y, wd, h)
   return l
 end
 
-local function btn(name, x, y, wd, label, fn)
-  local l = mk(name, x, y, wd, 24)
+local function btn(name, x, y, wd, label, fn, container)
+  local l = mk(name, x, y, wd, 24, container)
   setLabelText(name, label)
   l:setClickCallback(fn)
   l:show()
   return l
 end
 
-local function txt(name, x, y, wd, h, text)
-  local l = mk(name, x, y, wd, h)
+local function txt(name, x, y, wd, h, text, container)
+  local l = mk(name, x, y, wd, h, container)
   setLabelText(name, text)
   l:show()
   return l
@@ -1433,14 +1484,9 @@ end
 
 -- Edytor sceny (fala 3): wiersze krokow na osadzonych liniach komend
 -- (D21). Uklad miesci sie w oknie 640 px: num | typ | tresc | akcje.
-local function renderEdit()
-  local st = core.state
-  local s = core.currentScene()
-  if not s then
-    st.view = "library"
-    return renderLibrary()
-  end
-
+-- Naglowek sceny wspoldzielony przez edytor i prompter (D26): powrot,
+-- przelacznik trybu, pomoc. Nazwy truwer.ed.* zostaja (kontrakt suity E).
+local function renderSceneHeader()
   btn("truwer.ed.back", 10, 6, 90, "Biblioteka", function()
     core.goLibrary()
     gui.render()
@@ -1457,6 +1503,17 @@ local function renderEdit()
     core.setMode("play")
     gui.render()
   end)
+end
+
+local function renderEdit()
+  local st = core.state
+  local s = core.currentScene()
+  if not s then
+    st.view = "library"
+    return renderLibrary()
+  end
+
+  renderSceneHeader()
 
   line("truwer.ed.tytul", 10, 66, 620, s.tytul or "", function(t)
     core.setTytul(t)
@@ -1524,21 +1581,113 @@ local function renderEdit()
   end)
 end
 
-local function renderStub()
+-- Prompter (fala 4): port renderPlay/buildPlayPanel z dargoth. Start pauzy
+-- napedzany renderem (jak buildPlayPanel): pelny render przy kursorze na
+-- pauzie z sekundami restartuje odliczanie — to zachowanie 1:1.
+local function renderPlay()
   local st = core.state
   local s = core.currentScene()
   if not s then
     st.view = "library"
     return renderLibrary()
   end
-  local tytul = s.tytul
-  if tytul == nil or tytul == "" then tytul = "(bez tytułu)" end
-  txt("truwer.stub.title", 10, 10, 620, 24, "Scena: " .. tytul)
-  txt("truwer.stub.info", 10, 40, 620, 24, st.mode == "play"
-    and "Widok odgrywania (prompter) dojdzie w fali 4."
-    or "Widok edycji dojdzie w fali 3.")
-  btn("truwer.stub.back", 10, 90, 90, "Powrót", function()
-    core.goLibrary()
+
+  renderSceneHeader()
+
+  -- D31: toggle autoCursor (Mudlet nie ma checkboxa)
+  btn("truwer.pl.auto", 10, 66, 200,
+    (st.autoCursor and "[x] " or "[ ] ") .. "Po pauzie przejdź dalej", function()
+      core.setAutoCursor(not st.autoCursor)
+      gui.render()
+    end)
+  local total = #s.kroki
+  local pos = st.cursor &gt;= total and total or (st.cursor + 1)
+  txt("truwer.pl.prog", 216, 66, 120, 24,
+    total &gt; 0 and ("krok " .. pos .. "/" .. total) or "brak kroków")
+  txt("truwer.pl.hint", 10, 94, 400, 20, "Kliknij krok, aby go aktywować")
+
+  -- D29: lista krokow w przewijanym pojemniku
+  local scroll = gui.managed["truwer.pl.scroll"]
+  if not scroll then
+    scroll = Geyser.ScrollBox:new({
+      name = "truwer.pl.scroll", x = 10, y = 118, width = 620, height = 236,
+      container = gui.win,
+    })
+    gui.managed["truwer.pl.scroll"] = scroll
+  else
+    scroll:move(10, 118)
+    scroll:resize(620, 236)
+  end
+  scroll:show()
+
+  if total == 0 then
+    txt("truwer.pl.empty", 4, 4, 600, 22, "Brak kroków.", scroll)
+  end
+  for i, k in ipairs(s.kroki) do
+    local label = core.stepLabel(k)
+    if i - 1 == st.cursor then label = "» " .. label end
+    local idx = i - 1 -- kursor 0-based (paritet JS)
+    if k.typ ~= "nota" then
+      btn("truwer.pl.row." .. i, 4, 4 + (i - 1) * 26, 600, label, function()
+        core.activateStep(idx)
+        gui.render()
+      end, scroll)
+    else
+      txt("truwer.pl.row." .. i, 4, 4 + (i - 1) * 26, 600, 24, label, scroll)
+    end
+  end
+
+  -- panel biezacego kroku (buildPlayPanel)
+  local py = 366
+  if st.cursor &gt;= total then
+    txt("truwer.pl.big", 10, py, 620, 28,
+      total &gt; 0 and "Koniec sceny" or "Brak kroków")
+  else
+    local k = s.kroki[st.cursor + 1]
+    if k.typ == "cmd" then
+      txt("truwer.pl.panelhint", 10, py, 620, 20, "do wysłania:")
+      line("truwer.pl.line", 10, py + 24, 620, st.playBuffer, function(t)
+        core.setPlayBuffer(t) -- Enter: sync bufora z linii (D28)
+        local _, err = core.wyslijBufor()
+        if err then core.showStatus(err, "error") end
+        gui.render()
+      end)
+      if #core.splitVariants(k.tekst) &gt; 1 then
+        btn("truwer.pl.reroll", 10, py + 54, 120, "Losuj ponownie", function()
+          core.rerollVariant()
+          gui.render()
+        end)
+      end
+      btn("truwer.pl.send", 136, py + 54, 90, "Wyślij", function()
+        local l = gui.managed["truwer.pl.line"]
+        if l then core.setPlayBuffer(l:getText()) end -- mogla byc edycja bez Entera
+        local _, err = core.wyslijBufor()
+        if err then core.showStatus(err, "error") end
+        gui.render()
+      end)
+    elseif k.typ == "pauza" then
+      txt("truwer.pl.pauselbl", 10, py, 90, 28, "PAUZA")
+      if k.sekundy ~= nil and k.sekundy &gt; 0 then
+        txt("truwer.pl.countdown", 104, py, 100, 28,
+          core.fmtNum(k.sekundy) .. "s")
+        core.startPause(k.sekundy)
+      else
+        txt("truwer.pl.pausehint", 104, py, 200, 28, "kliknij Dalej")
+      end
+    end
+  end
+
+  local ny = 470
+  btn("truwer.pl.back", 10, ny, 90, "Wstecz", function()
+    core.back()
+    gui.render()
+  end)
+  btn("truwer.pl.next", 106, ny, 90, "Dalej", function()
+    core.advance()
+    gui.render()
+  end)
+  btn("truwer.pl.top", 202, ny, 110, "Na początek", function()
+    core.stop()
     gui.render()
   end)
 end
@@ -1546,6 +1695,16 @@ end
 function gui.renderStatus()
   if not gui.win then return end
   txt("truwer.status", 10, 508, 620, 20, core.state.statusMsg or "")
+end
+
+-- D30: odswiez etykiete odliczania z rdzenia (co tick), bez pelnego renderu.
+function gui.renderCountdown()
+  if not gui.win then return end
+  local rem = core.state.pauseRemainMs
+  if rem == nil then return end
+  local wg = gui.managed["truwer.pl.countdown"]
+  if not wg then return end
+  setLabelText("truwer.pl.countdown", core.fmtCountdown(rem))
 end
 
 function gui.render()
@@ -1556,8 +1715,10 @@ function gui.render()
     renderLibrary()
   elseif st.view == "scene" and st.mode == "edit" then
     renderEdit()
+  elseif st.view == "scene" and st.mode == "play" then
+    renderPlay()
   else
-    renderStub() -- prompter (tryb play): fala 4
+    renderLibrary() -- awaryjnie: nieznany widok -&gt; lista
   end
   gui.renderStatus()
   txt("truwer.footer", 10, 534, 620, 20,
