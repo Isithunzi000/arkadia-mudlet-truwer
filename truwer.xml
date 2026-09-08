@@ -18,6 +18,15 @@ end</script>
 			<packageName />
 			<regex>^/truwer\s+pomoc$</regex>
 		</Alias>
+		<Alias isActive="yes" isFolder="no">
+			<name>truwer_aktualizuj_alias</name>
+			<script>if truwer and truwer.onAktualizuj then
+  truwer.onAktualizuj()
+end</script>
+			<command />
+			<packageName />
+			<regex>^/truwer\s+aktualizuj$</regex>
+		</Alias>
 	</AliasPackage>
 	<ScriptPackage>
 		<Script isActive="yes" isFolder="no">
@@ -646,12 +655,22 @@ function core.loadPrefs()
   else
     core.state.autoCursor = true -- JS: brak klucza -&gt; true
   end
+  -- D38: override postaci (biblioteka per postac); brak klucza = auto
+  if type(t) == "table" and type(t.charOverride) == "string"
+     and trimJs(t.charOverride) ~= "" then
+    core.charOverride = trimJs(t.charOverride)
+  else
+    core.charOverride = nil
+  end
   return core.state.autoCursor
 end
 
 function core.savePrefs()
   ensureDir()
-  return pcall(table.save, core.prefsPath(), { autoCursor = core.state.autoCursor })
+  return pcall(table.save, core.prefsPath(), {
+    autoCursor = core.state.autoCursor,
+    charOverride = core.charOverride,
+  })
 end
 
 -- ---------------------------------------------------------------------------
@@ -1104,6 +1123,50 @@ function core.goLibrary()
   core.state.view = "library"
 end
 
+-- ---------------------------------------------------------------------------
+-- Pomoc i ustawienia (fala 5). Pomoc: view "help" z zapamietanym powrotem
+-- (D35, mirror openHelp/closeHelp; flushSave zbedne — zapis natychmiastowy,
+-- D25). Ustawienia: view "settings" tylko z biblioteki (D37).
+-- ---------------------------------------------------------------------------
+if core.state.helpReturn == nil then
+  core.state.helpReturn = { view = "library", mode = "edit" }
+end
+
+function core.openHelp()
+  core.stopPause()
+  local st = core.state
+  if st.view ~= "help" then
+    st.helpReturn = { view = st.view, mode = st.mode }
+  end
+  st.view = "help"
+end
+
+function core.closeHelp()
+  local st = core.state
+  st.view = st.helpReturn.view
+  st.mode = st.helpReturn.mode
+end
+
+function core.openSettings()
+  local st = core.state
+  core.stopPause()
+  st.view = "settings"
+end
+
+-- D37/D38: override postaci (puste = auto). Zmiana przeladowuje biblioteke
+-- i wraca do listy; otwarta scena jest z STAREJ biblioteki — zamykamy.
+function core.setCharOverride(name)
+  name = trimJs(tostring(name or ""))
+  core.charOverride = name ~= "" and name or nil
+  core.savePrefs()
+  local st = core.state
+  st.currentId = nil
+  st.selectedIds = {}
+  st.view = "library"
+  core.loadLibrary()
+  core.showStatus("Biblioteka postaci: " .. core.charName() .. ".", "success")
+end
+
 function core.newScene()
   local now = nowMs()
   local s = {
@@ -1406,8 +1469,13 @@ local function renderLibrary()
     core.importFile(invokeFileDialog(false, getMudletHomeDir()))
     gui.render()
   end)
+  btn("truwer.hdr.settings", 452, 6, 102, "Ustawienia", function()
+    core.openSettings()
+    gui.render()
+  end)
   btn("truwer.hdr.help", 560, 6, 70, "Pomoc", function()
-    truwer.onPomoc()
+    core.openHelp()
+    gui.render()
   end)
 
   local items = core.sortedLibrary()
@@ -1492,7 +1560,8 @@ local function renderSceneHeader()
     gui.render()
   end)
   btn("truwer.ed.help", 560, 6, 70, "Pomoc", function()
-    truwer.onPomoc()
+    core.openHelp()
+    gui.render()
   end)
   txt("truwer.ed.modelbl", 10, 36, 44, 24, "Tryb:")
   btn("truwer.ed.mode.edit", 60, 36, 90, "Edycja", function()
@@ -1692,6 +1761,105 @@ local function renderPlay()
   end)
 end
 
+-- Pomoc (fala 5, D35): tresc zaadaptowana z dargoth helpContent (bez
+-- "Importuj tekst" — D16; osadzone linie zamiast textarea).
+local HELP_LINES = {
+  "Truwer - asystent odgrywania scen",
+  "",
+  "Truwer pozwala przygotować scenę (listę kroków z komend gry) i odegrać",
+  "ją we własnym tempie, krok po kroku. Każdą linię wysyłasz ręcznie —",
+  "plugin nigdy nie wysyła nic sam. Tempo ustalasz Ty.",
+  "",
+  "Otwieranie: wpisz /truwer (otwiera i zamyka okno).",
+  "",
+  "Biblioteka i tryby:",
+  "- Biblioteka to lista Twoich scen, osobna dla każdej postaci. Tu",
+  "  tworzysz, importujesz, otwierasz, odgrywasz, eksportujesz, usuwasz.",
+  "- Otwarta scena ma dwa tryby (wiersz Tryb): Edycja (budujesz kroki)",
+  "  oraz Odtwarzanie (odgrywasz scenę).",
+  "",
+  "Rodzaje kroków:",
+  "- Komenda — zwykła komenda gry, wysyłana dosłownie. Może być długa.",
+  "- Pauza — przerwa z odliczaniem, jako podpowiedź tempa. Sama nic",
+  "  nie wysyła. Może mieć liczbę sekund.",
+  "- Notatka — tekst tylko dla Ciebie. Nigdy nie jest wysyłana;",
+  "  prompter ją pomija.",
+  "- Mowę pisz przez: powiedz &lt;tekst&gt; (nie przez apostrof).",
+  "",
+  "warianty komendy (znak |):",
+  "- Kilka wersji oddzielonych | — prompter wylosuje jedną z nich.",
+  "- Przykład: usmiechnij sie|skin glowa.",
+  "- W prompterze przycisk Losuj ponownie wybiera inną wersję.",
+  "",
+  "Odgrywanie (prompter):",
+  "- Lista kroków; aktywny ma znak ». Kliknij linię, aby ją aktywować.",
+  "- Pole 'do wysłania' to dokładnie to, co pójdzie do gry — możesz",
+  "  je zmienić przed wysłaniem. Trwałe zmiany rób w trybie Edycja.",
+  "- Wyślij (albo Enter w polu) wysyła linię i przechodzi dalej.",
+  "  Wstecz i Dalej poruszają się bez wysyłania. Na początek wraca",
+  "  do pierwszego kroku.",
+  "- Pauza: leci odliczanie. Przy włączonym 'Po pauzie przejdź dalej'",
+  "  prompter sam pokaże następny krok (nadal nic nie wysyła).",
+  "",
+  "Import i eksport:",
+  "- Importuj plik: scena z .txt (lista komend) lub .json (pełna scena).",
+  "- Format tekstu: każda linia to komenda; /pauza lub /pauza N to",
+  "  pauza; linia od # to notatka.",
+  "- Eksport: JSON (pełna kopia) lub TXT (prosty tekst), do katalogu",
+  "  truwer/eksport w profilu.",
+  "- Import jest dosłowny: komendy z wiodącym / trzeba pozbawić /",
+  "  (klient rezerwuje / dla aliasów), żeby trafiły do gry.",
+  "",
+  "Aktualizacje:",
+  "- /truwer aktualizuj albo przycisk w Ustawieniach. Co 8 h truwer",
+  "  sam sprawdzi i powiadomi — pobierasz dopiero na swoją komendę.",
+  "",
+  "Ważne:",
+  "- Plugin nigdy nie wysyła komend samodzielnie. Każda wysyłka to",
+  "  Twój świadomy klik. To wymóg regulaminu Arkadii.",
+}
+
+local function renderHelp()
+  btn("truwer.hp.back", 10, 6, 90, "Powrót", function()
+    core.closeHelp()
+    gui.render()
+  end)
+  local scroll = gui.managed["truwer.hp.scroll"]
+  if not scroll then
+    scroll = Geyser.ScrollBox:new({
+      name = "truwer.hp.scroll", x = 10, y = 40, width = 620, height = 456,
+      container = gui.win,
+    })
+    gui.managed["truwer.hp.scroll"] = scroll
+  else
+    scroll:move(10, 40)
+    scroll:resize(620, 456)
+  end
+  scroll:show()
+  for i, lineTxt in ipairs(HELP_LINES) do
+    txt("truwer.hp.line." .. i, 4, 4 + (i - 1) * 20, 600, 18, lineTxt, scroll)
+  end
+end
+
+-- Ustawienia (fala 5, D37): override postaci + manualna kontrola update.
+local function renderSettings()
+  btn("truwer.st.back", 10, 6, 90, "Powrót", function()
+    core.goLibrary()
+    gui.render()
+  end)
+  txt("truwer.st.label", 10, 50, 620, 24,
+    "Postać (osobna biblioteka scen; puste = automatycznie):")
+  line("truwer.st.char", 10, 78, 300, core.charName(), function(t)
+    core.setCharOverride(t)
+    gui.render()
+  end)
+  txt("truwer.st.info", 10, 112, 620, 20,
+    "Biblioteka zapisywana w profilu: truwer/library." .. core.charName() .. ".lua")
+  btn("truwer.st.update", 10, 160, 180, "Sprawdź aktualizacje", function()
+    truwer.updater.check(true)
+  end)
+end
+
 function gui.renderStatus()
   if not gui.win then return end
   txt("truwer.status", 10, 508, 620, 20, core.state.statusMsg or "")
@@ -1717,6 +1885,10 @@ function gui.render()
     renderEdit()
   elseif st.view == "scene" and st.mode == "play" then
     renderPlay()
+  elseif st.view == "help" then
+    renderHelp()
+  elseif st.view == "settings" then
+    renderSettings()
   else
     renderLibrary() -- awaryjnie: nieznany widok -&gt; lista
   end
@@ -1756,14 +1928,206 @@ end
 			</script>
 		</Script>
 		<Script isActive="yes" isFolder="no">
+			<name>truwer_updater</name>
+			<eventHandlerList />
+			<script>
+-- truwer - updater (fala 5): wzorzec 1:1 z kalendarzy (imperium_cal).
+-- Meta z GitHub releases/latest, throttle 8 h z cachem w profilu, manual
+-- przez /truwer aktualizuj i przycisk w ustawieniach; auto-check 10 s po
+-- starcie (w truwer_init). Auto z nowsza wersja TYLKO powiadamia; pobranie
+-- .mpackage wylacznie z recznej kontroli. Updater nigdy nie wysyla do gry.
+-- Wersja czytana leniwie (truwer.version ustawia truwer_init, ktory laduje
+-- sie PO tym bloku).
+truwer.updater = truwer.updater or {}
+local up = truwer.updater
+
+local UPDATE_REPO = "arkadia-mudlet-truwer"
+local UPDATE_PKG_NAME = "truwer"
+local UPDATE_CMD = "/truwer aktualizuj"
+local UPDATE_THROTTLE_SEC = 8 * 3600
+local UPDATE_API_URL = "https://api.github.com/repos/Isithunzi000/"
+  .. UPDATE_REPO .. "/releases/latest"
+local UPDATE_CACHE_PATH = getMudletHomeDir() .. "/truwer_update_cache.lua"
+
+-- Historyczne nazwy paczek na mudlet-web (tozsamosc = nazwa pliku):
+-- dawniej &lt;pkg&gt;_update; self = kamizelka na lokalne buildy. Truwer nie ma
+-- jeszcze wersjonowanych assetow (pierwszy release dopiero w fali 6).
+local function legacyPkgs()
+  return {
+    "truwer_update",
+    "truwer_" .. tostring(truwer.version):gsub("%.", "_"),
+  }
+end
+
+local dlHandlers = {}
+local metaPath = nil
+local pkgPath = nil
+local pendingVersion = nil
+local manual = false
+
+local function cacheRead()
+  local t = {}
+  local ok, res = pcall(table.load, UPDATE_CACHE_PATH, t)
+  if ok and res then return t end
+  return {}
+end
+
+local function cacheWrite(latest)
+  pcall(table.save, UPDATE_CACHE_PATH,
+    { lastCheck = os.time(), knownLatest = latest })
+end
+
+local function versionParts(v)
+  local parts = {}
+  for seg in tostring(v):gmatch("[^%.]+") do
+    parts[#parts + 1] = tonumber(seg:match("^%d+")) or 0
+  end
+  return parts
+end
+
+-- Porownanie numeryczne segmentow (suffix literowy pomijany): 1.0.9m &lt; 1.0.16m.
+function up.versionNewer(a, b)
+  local pa, pb = versionParts(a), versionParts(b)
+  for i = 1, math.max(#pa, #pb) do
+    local x, y = pa[i] or 0, pb[i] or 0
+    if x ~= y then return x &gt; y end
+  end
+  return false
+end
+
+local function say(msg)
+  cecho("&lt;green&gt;[truwer]&lt;reset&gt; " .. msg .. "\n")
+end
+
+local function notify(latest)
+  cecho("\n&lt;green&gt;[truwer] Dostepna nowa wersja " .. latest
+    .. " (masz " .. tostring(truwer.version) .. "). Wpisz &lt;yellow&gt;"
+    .. UPDATE_CMD .. "&lt;reset&gt;&lt;green&gt; aby zaktualizowac.&lt;reset&gt;\n\n")
+end
+
+local function fail(what)
+  say("Nie udalo sie " .. what .. " - sprobuj pozniej.")
+end
+
+local function killHandlers()
+  for k, id in pairs(dlHandlers) do
+    killAnonymousEventHandler(id)
+    dlHandlers[k] = nil
+  end
+end
+
+local function onError(event)
+  killHandlers()
+  metaPath = nil
+  pkgPath = nil
+  pendingVersion = nil
+  fail("sprawdzic aktualizacji")
+end
+
+local function onPkgDone(event, path)
+  if path ~= pkgPath then return end
+  killHandlers()
+  local v = pendingVersion
+  pkgPath = nil
+  pendingVersion = nil
+  pcall(uninstallPackage, UPDATE_PKG_NAME)
+  for _, legacyName in ipairs(legacyPkgs()) do
+    pcall(uninstallPackage, legacyName)
+  end
+  tempTimer(1, function()
+    installPackage(path)
+    os.remove(path)
+    say("Zaktualizowano do wersji " .. v
+      .. ". Zrestartuj Mudleta, aby zmiany zadzialaly.")
+  end)
+end
+
+local function onMetaDone(event, path)
+  if path ~= metaPath then return end
+  metaPath = nil
+  if dlHandlers.meta then
+    killAnonymousEventHandler(dlHandlers.meta)
+    dlHandlers.meta = nil
+  end
+  local ok, meta = pcall(function()
+    local f = io.open(path, "r")
+    if not f then error("brak pliku metadanych") end
+    local body = f:read("*a")
+    f:close()
+    return yajl.to_value(body)
+  end)
+  if not ok or type(meta) ~= "table" or type(meta.tag_name) ~= "string" then
+    killHandlers()
+    fail("sprawdzic aktualizacji")
+    return
+  end
+  local latest = meta.tag_name:gsub("^v", "")
+  cacheWrite(latest)
+  if not up.versionNewer(latest, truwer.version) then
+    killHandlers()
+    if manual then
+      say("Masz najnowsza wersje (" .. tostring(truwer.version) .. ").")
+    end
+    return
+  end
+  if not manual then
+    killHandlers()
+    notify(latest)
+    return
+  end
+  local url = nil
+  if type(meta.assets) == "table" then
+    for _, a in ipairs(meta.assets) do
+      if type(a) == "table" and type(a.browser_download_url) == "string"
+         and a.browser_download_url:match("%.mpackage$") then
+        url = a.browser_download_url
+        break
+      end
+    end
+  end
+  if not url then
+    url = "https://github.com/Isithunzi000/" .. UPDATE_REPO
+      .. "/releases/download/v" .. latest .. "/" .. UPDATE_PKG_NAME .. ".mpackage"
+  end
+  pendingVersion = latest
+  pkgPath = getMudletHomeDir() .. "/" .. UPDATE_PKG_NAME .. ".mpackage"
+  dlHandlers.pkg = registerAnonymousEventHandler("sysDownloadDone", onPkgDone)
+  downloadFile(pkgPath, url)
+end
+
+function up.check(isManual)
+  manual = isManual and true or false
+  if mudletOlderThan and mudletOlderThan(4, 6) then
+    if manual then say("Aktualizator wymaga Mudleta 4.6 lub nowszego.") end
+    return
+  end
+  if not manual then
+    local cache = cacheRead()
+    local lastCheck = tonumber(cache.lastCheck) or 0
+    if os.time() - lastCheck &lt; UPDATE_THROTTLE_SEC then
+      if type(cache.knownLatest) == "string"
+         and up.versionNewer(cache.knownLatest, truwer.version) then
+        notify(cache.knownLatest)
+      end
+      return
+    end
+  end
+  metaPath = getMudletHomeDir() .. "/" .. UPDATE_PKG_NAME .. "_update_meta.json"
+  dlHandlers.meta = registerAnonymousEventHandler("sysDownloadDone", onMetaDone)
+  dlHandlers.err = registerAnonymousEventHandler("sysDownloadError", onError)
+  downloadFile(metaPath, UPDATE_API_URL)
+end
+			</script>
+		</Script>
+		<Script isActive="yes" isFolder="no">
 			<name>truwer_init</name>
 			<eventHandlerList />
 			<script>
 -- truwer - asystent scenek RP dla Mudleta (port pluginu Dargoth/WWW).
 -- Spiewanie, recytacja, odgrywanie scen krok po kroku z prompterem.
--- Fala 2: okno Geyser (Adjustable.Container) + biblioteka GUI. Alias
--- /truwer toggluje okno (jak togglePopup w dargoth); edytor i prompter
--- laduja w falach 3/4, updater i pelna pomoc w fali 5.
+-- Alias /truwer toggluje okno (jak togglePopup w dargoth); fala 5 doklada
+-- updater (wzorzec kalendarzy) z auto-check 10 s po starcie, pelna pomoc
+-- w oknie (przycisk Pomoc) i ustawienia (override postaci).
 
 truwer = truwer or {}
 
@@ -1784,8 +2148,17 @@ truwer.core.loadPrefs()
 truwer.core.loadLibrary()
 truwer.gui.build()
 
+-- auto-check aktualizacji 10 s po starcie (wzorzec kalendarzy; throttled 8 h)
+if type(tempTimer) == "function" then
+  tempTimer(10, function() truwer.updater.check(false) end)
+end
+
 function truwer.onAlias()
   truwer.gui.toggle()
+end
+
+function truwer.onAktualizuj()
+  truwer.updater.check(true)
 end
 
 function truwer.onPomoc()
@@ -1793,7 +2166,9 @@ function truwer.onPomoc()
   cecho("Aliasy:\n")
   cecho("  &lt;yellow&gt;/truwer&lt;reset&gt; - otwiera/zamyka okno truwera\n")
   cecho("  &lt;yellow&gt;/truwer pomoc&lt;reset&gt; - ten tekst\n")
-  cecho("Pelna pomoc dojdzie z updaterem w fali 5.\n")
+  cecho("  &lt;yellow&gt;/truwer aktualizuj&lt;reset&gt; - sprawdza i pobiera nowa wersje\n")
+  cecho("Pelna pomoc: przycisk &lt;yellow&gt;Pomoc&lt;reset&gt; w oknie truwera.\n")
+  cecho("Truwer nigdy nie wysyla komend sam - kazda wysylka to Twoj klik.\n")
 end
 
 end
