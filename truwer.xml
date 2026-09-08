@@ -1,0 +1,62 @@
+<MudletPackage version="1.001">
+	<AliasPackage>
+		<Alias isActive="yes" isFolder="no">
+			<name>truwer_alias</name>
+			<script>if truwer and truwer.onAlias then
+  truwer.onAlias()
+end</script>
+			<command />
+			<packageName />
+			<regex>^/truwer$</regex>
+		</Alias>
+		<Alias isActive="yes" isFolder="no">
+			<name>truwer_pomoc_alias</name>
+			<script>if truwer and truwer.onPomoc then
+  truwer.onPomoc()
+end</script>
+			<command />
+			<packageName />
+			<regex>^/truwer\s+pomoc$</regex>
+		</Alias>
+	</AliasPackage>
+	<ScriptPackage>
+		<Script isActive="yes" isFolder="no">
+			<name>truwer_init</name>
+			<eventHandlerList />
+			<script>
+-- truwer - asystent scenek RP dla Mudleta (port pluginu Dargoth/WWW).
+-- Spiewanie, recytacja, odgrywanie scen krok po kroku z prompterem.
+-- Fala 0: szkielet pakietu (banner wersji + pomoc). Rdzen, biblioteka,
+-- prompter i edytor GUI laduja w kolejnych falach.
+
+truwer = truwer or {}
+
+do
+
+local PLUGIN_VERSION = "1.0.0m"
+local PLUGIN_BUILD   = "08-09-2026"
+
+truwer.version = PLUGIN_VERSION
+truwer.build = PLUGIN_BUILD
+
+function truwer.banner()
+  return "Truwer " .. PLUGIN_VERSION .. " (build " .. PLUGIN_BUILD .. ") - port w trakcie budowy."
+end
+
+function truwer.onAlias()
+  cecho("&lt;green&gt;" .. truwer.banner() .. "&lt;reset&gt;\n")
+end
+
+function truwer.onPomoc()
+  cecho("&lt;green&gt;" .. truwer.banner() .. "&lt;reset&gt;\n")
+  cecho("Aliasy:\n")
+  cecho("  &lt;yellow&gt;/truwer&lt;reset&gt; - banner wersji\n")
+  cecho("  &lt;yellow&gt;/truwer pomoc&lt;reset&gt; - ten tekst\n")
+  cecho("Pelna pomoc i alias /truwer aktualizuj dojda z updaterem w fali 5.\n")
+end
+
+end
+</script>
+		</Script>
+	</ScriptPackage>
+</MudletPackage>
