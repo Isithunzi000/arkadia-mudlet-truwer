@@ -1,13 +1,6 @@
 # Truwer — Mudlet
 
-Pakiet do Mudleta: asystent scenek RP dla Arkadii MUD — śpiewanie, recytacja,
-odgrywanie scen krok po kroku z prompterem. Biblioteka scen per profil,
-edytor kroków i okno odgrywania z odliczaniem pauz.
-
-Port pluginu truwer z klientów [Dargoth](https://github.com/Isithunzi000/arkadia-dargoth-plugins)
-i WWW (rozszerzenie do przeglądarki).
-
----
+Truwer to asystent odgrywania sekwencyjnego: śpiewanie piosenek, deklamowanie wierszy, odgrywanie scen lub rytuałów.
 
 ## Jak zainstalować
 
@@ -15,11 +8,14 @@ i WWW (rozszerzenie do przeglądarki).
 2. W Mudlecie: **Toolbox → Package Manager** (`Alt+O`) → **Install** i wskaż pobrany plik
 3. Gotowe — wpisz `/truwer`
 
-> Paczka powinna znajdować się powyżej skryptów ogólnodostępnych Arkadii — przesuń ją w górę listy w Package Manager.
+## Użycie
 
-Plik [`truwer.xml`](truwer.xml) w korzeniu repo to źródło pakietu — możesz podejrzeć cały kod bez pobierania.
+- `/truwer` — otwiera okno asystenta
+- Budujesz scenę z kroków: komendy, pauzy, notatki — plugin podaje kolejne linie do wysłania
+- Każdą linię wysyłasz samodzielnie: kliknięciem **Wyślij** lub Enterem
+- Opcjonalny tryb auto-przejścia po odliczeniu pauzy podpowiada kolejną linię, ale nigdy nie wysyła jej automatycznie
 
----
+Plugin w pełni zgodny z regulaminem gry — wszystkie komendy wysyłane świadomie przez gracza, bez automatyki.
 
 ## Komendy
 
@@ -29,51 +25,10 @@ Plik [`truwer.xml`](truwer.xml) w korzeniu repo to źródło pakietu — możesz
 | `/truwer pomoc` | pomoc w konsoli (pełna pomoc: przycisk „Pomoc" w oknie) |
 | `/truwer aktualizuj` | sprawdza i instaluje aktualizację z GitHub Releases |
 
-## Co potrafi
-
-- **biblioteka scen per profil** — każdy profil Mudleta ma własną
-  bibliotekę; sortowanie po dacie
-  modyfikacji, powielanie, zaznaczanie i operacje zbiorcze, eksport/import
-  JSON (format v1 zgodny z klientami przeglądarkowymi)
-- **edytor scen** — kroki trzech typów: komenda, pauza (z liczbą sekund),
-  nota; kolejność kroków strzałkami, duplikowanie, warianty komendy
-  `a|b|c` (prompter wylosuje jedną); zapis jest natychmiastowy
-- **prompter (odgrywanie)** — scena krok po kroku: bieżący krok w polu
-  do edycji, wysyłka przyciskiem „Wyślij" albo Enterem, „Losuj ponownie"
-  dla wariantów, pauza z widocznym odliczaniem; opcjonalnie po pauzie
-  kursor sam przechodzi dalej (bez wysyłania)
-- **ustawienia** — ręczna kontrola aktualizacji z poziomu okna
-
-## Regulamin
-
-Plugin **nigdy sam nie wysyła** komend do gry — każda wysyłka to świadoma
-akcja gracza (kliknięcie „Wyślij" albo Enter w polu komendy). Odliczanie
-pauzy i automatyczne przechodzenie dalej nie wysyłają niczego.
-
----
-
 ## Aktualizacje
 
-Pakiet sam sprawdza aktualizacje: przy starcie klienta (nie częściej niż
-co 8 godzin) pyta o najnowsze wydanie na GitHubie i — jeśli jest nowsza
-wersja — wyświetla powiadomienie. Sam nic nie instaluje: aktualizację
-uruchamiasz świadomie komendą `/truwer aktualizuj` albo przyciskiem
-w ustawieniach — pakiet pobiera wydanie, podmienia je i prosi o restart
-Mudleta.
+Pakiet przy starcie klienta (nie częściej niż co 8 godzin) sprawdza najnowsze wydanie na GitHubie i wyświetla powiadomienie o nowszej wersji — sam nic nie instaluje; aktualizację uruchamiasz świadomie komendą `/truwer aktualizuj`.
 
-Assety wydania mają stałe nazwy (`truwer.mpackage`, `truwer.xml`),
-a aktualizator przed instalacją sprząta historyczne nazwy pakietów —
-jedna paczka zostaje w profilu zawsze pod nazwą `truwer`.
+Sceny i ustawienia zapisują się w katalogu profilu Mudleta (`<profil>/truwer/`).
 
----
-
-## Dane
-
-Sceny, ustawienia i pozycja okna zapisują się na dysku profilu Mudleta
-(`<profil>/truwer/`) i przeżywają restart klienta. W mudlet-web (Mudlet
-w przeglądarce) zapis działa przez IndexedDB — per origin i profil,
-best-effort (np. czyszczenie danych przeglądarki kasuje bibliotekę).
-
-## Licencja
-
-AGPL-3.0 — patrz [LICENSE](LICENSE).
+Port pluginu z klientów Dargoth/WWW. Licencja [AGPL-3.0](LICENSE).
