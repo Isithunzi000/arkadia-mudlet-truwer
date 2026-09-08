@@ -1,7 +1,7 @@
 # Truwer — Mudlet
 
 Pakiet do Mudleta: asystent scenek RP dla Arkadii MUD — śpiewanie, recytacja,
-odgrywanie scen krok po kroku z prompterem. Biblioteka scen per postać,
+odgrywanie scen krok po kroku z prompterem. Biblioteka scen per profil,
 edytor kroków i okno odgrywania z odliczaniem pauz.
 
 Port pluginu truwer z klientów [Dargoth](https://github.com/Isithunzi000/arkadia-dargoth-plugins)
@@ -31,8 +31,8 @@ Plik [`truwer.xml`](truwer.xml) w korzeniu repo to źródło pakietu — możesz
 
 ## Co potrafi
 
-- **biblioteka scen per postać** — każda postać ma własną bibliotekę
-  (plus biblioteka wspólna przed wykryciem postaci); sortowanie po dacie
+- **biblioteka scen per profil** — każdy profil Mudleta ma własną
+  bibliotekę; sortowanie po dacie
   modyfikacji, powielanie, zaznaczanie i operacje zbiorcze, eksport/import
   JSON (format v1 zgodny z klientami przeglądarkowymi)
 - **edytor scen** — kroki trzech typów: komenda, pauza (z liczbą sekund),
@@ -42,8 +42,7 @@ Plik [`truwer.xml`](truwer.xml) w korzeniu repo to źródło pakietu — możesz
   do edycji, wysyłka przyciskiem „Wyślij" albo Enterem, „Losuj ponownie"
   dla wariantów, pauza z widocznym odliczaniem; opcjonalnie po pauzie
   kursor sam przechodzi dalej (bez wysyłania)
-- **ustawienia** — ręczne nadpisanie postaci dla biblioteki (puste pole
-  = automatyczne wykrywanie z gry)
+- **ustawienia** — ręczna kontrola aktualizacji z poziomu okna
 
 ## Regulamin
 
@@ -77,4 +76,4 @@ best-effort (np. czyszczenie danych przeglądarki kasuje bibliotekę).
 
 ## Licencja
 
-GPL-3.0 — patrz [LICENSE](LICENSE).
+AGPL-3.0 — patrz [LICENSE](LICENSE).
