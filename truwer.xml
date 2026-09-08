@@ -619,8 +619,20 @@ local function legacyLibraryFiles()
   return out
 end
 
+-- Fala 9: realny table.load (desktop Other.lua -&gt; dofile; mudlet-web
+-- mirroruje mudlet-lua 1:1) RZUCA "cannot open ...: No such file or
+-- directory" na brakujacym pliku, a brak pliku przy pierwszym starcie
+-- profilu to norma. Nieosloniety blad w loadPrefs/loadLibrary przerywal
+-- cala reszte truwer_init (GUI nigdy nie powstawalo). Wszystkie odczyty
+-- inicjalizacyjne ida przez te oslone.
+local function tryLoad(path)
+  local ok, t = pcall(table.load, path)
+  if ok then return t end
+  return nil
+end
+
 function core.migrateLegacyLibrary()
-  if table.load(core.libraryPath()) ~= nil then return false end
+  if tryLoad(core.libraryPath()) ~= nil then return false end
   local legacy = legacyLibraryFiles()
   if #legacy == 0 then return false end
   local byId = {}
@@ -655,7 +667,7 @@ end
 
 function core.loadLibrary()
   core.migrateLegacyLibrary() -- D44: no-op, gdy library.lua istnieje
-  local t = table.load(core.libraryPath())
+  local t = tryLoad(core.libraryPath())
   local out = {}
   local arr = arrayValues(t)
   if arr then
@@ -683,7 +695,7 @@ function core.addScenes(scenes)
 end
 
 function core.loadPrefs()
-  local t = table.load(core.prefsPath())
+  local t = tryLoad(core.prefsPath())
   if type(t) == "table" and type(t.autoCursor) == "boolean" then
     core.state.autoCursor = t.autoCursor
   else
@@ -1350,7 +1362,7 @@ end
 			<eventHandlerList />
 			<script>
 -- truwer - GUI okna, biblioteki (fala 2), edytora sceny (fala 3)
--- i promptera (fala 4): Geyser.Adjustable.Container, osadzone
+-- i promptera (fala 4): Adjustable.Container (global, fala 9), osadzone
 -- Geyser.CommandLine, lista krokow w Geyser.ScrollBox.
 -- Render odtwarza widok ze stanu rdzenia (truwer.core.state); widgety sa
 -- pulowane w rejestrze gui.managed (Mudlet nie kasuje labeli — chowamy
@@ -1908,7 +1920,11 @@ end
 
 function gui.build()
   if gui.win then return end
-  gui.win = Geyser.Adjustable.Container:new({
+  -- Fala 9: w realnym Mudlecie (desktop + mudlet-web) klasa okna
+  -- dokowalnego to GLOBAL Adjustable.Container; Geyser.Adjustable nie
+  -- istnieje (GeyserAdjustableContainer.lua: "Adjustable = Adjustable
+  -- or {}"). Nasz dawny shim Geyser.Adjustable byl niestandardowy.
+  gui.win = Adjustable.Container:new({
     name = "truwer",
     x = 40, y = 40, width = 640, height = 560,
     titleText = "Truwer - asystent odgrywania scen",
