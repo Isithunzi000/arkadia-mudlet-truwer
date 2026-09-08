@@ -1445,10 +1445,11 @@ end
 local function line(name, x, y, wd, text, fn)
   local l = mkLine(name, x, y, wd, 24)
   -- Fala 9b: realny Geyser.CommandLine (desktop i mudlet-web) NIE MA
-  -- setText; ustawienie tekstu to clear() + append(t)
-  -- (clearCmdLine/appendCmdLine).
-  l:clear()
-  l:append(text)
+  -- setText; ustawienie tekstu to print(t) (printCmdLine ZASTEPUJE
+  -- zawartosc). clear()+append(t) odpada: w mudlet-web appendCmdLine
+  -- czyta zywa wartosc pola (proba Reacta), wiec synchroniczne
+  -- clear+append duplikowalo tekst przy kazdym re-renderze.
+  l:print(text)
   l:setAction(fn)
   l:show()
   return l
