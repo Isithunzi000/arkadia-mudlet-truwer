@@ -31,4 +31,4 @@ Pakiet przy starcie klienta (nie częściej niż co 8 godzin) sprawdza najnowsze
 
 Sceny i ustawienia zapisują się w katalogu profilu Mudleta (`<profil>/truwer/`).
 
-Port pluginu z klientów Dargoth/WWW. Licencja [AGPL-3.0](LICENSE).
+Licencja [AGPL-3.0](LICENSE).
