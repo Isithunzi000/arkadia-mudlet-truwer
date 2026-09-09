@@ -1394,6 +1394,28 @@ local CONFIRM_TTL_MS = 4000 -- D18/D23: dwuklik zamiast window.confirm
 local TYPE_CYCLE = { cmd = "pauza", pauza = "nota", nota = "cmd" }
 local TYPE_LABEL = { cmd = "Typ: komenda", pauza = "Typ: pauza", nota = "Typ: notatka" }
 
+-- Fala 11: granice wnetrza okna zmierzone na zywym desktopie 5.0.1
+-- (Adjustable.Container padding=10): Inside ma 620 px szerokosci, a dolna
+-- widoczna granica tresci przy wysokosci okna 560 to y + h =&lt; 540 (tytul
+-- i dokladka okna zjadaja 2*padding od gory). Stary layout liczyl na 560 px,
+-- wiec footer ucinalo, a listy bez scrolla wyjezdzaly poza dol.
+local RIGHT_EDGE = 620 -- x + w =&lt; 620 (prawa krawedz Inside)
+local BOTTOM_EDGE = 540 -- y + h =&lt; 540 (dolna widoczna granica)
+local STATUS_Y = 490 -- pasek statusu nad stopka
+local FOOTER_Y = 514 -- stopka: 514 + 20 = 534, miesci sie w 540
+
+-- Fala 11: uciecie dlugiego tekstu z wielokropkiem (bezpieczne dla UTF-8:
+-- tnie po znakach, nie po bajtach, wiec polskie znaki sie nie psuja).
+local function fitText(s, maxChars)
+  s = tostring(s or "")
+  local chars = {}
+  for c in s:gmatch("[\1-\127\194-\244][\128-\191]*") do
+    chars[#chars + 1] = c
+  end
+  if #chars &lt;= maxChars then return s end
+  return table.concat(chars, "", 1, maxChars - 3) .. "..."
+end
+
 gui.managed = gui.managed or {}
 gui.confirm = gui.confirm or { id = nil, at = 0 }
 gui.open = gui.open or false
@@ -1452,14 +1474,14 @@ local function txt(name, x, y, wd, h, text, container)
 end
 
 -- Osadzona linia komend (D21), pulowana w gui.managed jak labele.
-local function mkLine(name, x, y, wd, h)
+local function mkLine(name, x, y, wd, h, container)
   local l = gui.managed[name]
   if not l then
     -- Fala 10: kontener DRUGIM argumentem (jak w mk powyzej) — cons.container
     -- jest ignorowane przez realny Geyser (desktop 4.22 i mudlet-web).
     l = Geyser.CommandLine:new({
       name = name, x = x, y = y, width = wd, height = h,
-    }, gui.win)
+    }, container or gui.win)
     gui.managed[name] = l
   else
     l:move(x, y)
@@ -1469,15 +1491,22 @@ local function mkLine(name, x, y, wd, h)
 end
 
 -- Linia z wstepnym tekstem i commitem na Enter (setAction).
-local function line(name, x, y, wd, text, fn)
-  local l = mkLine(name, x, y, wd, 24)
+local function line(name, x, y, wd, text, fn, container)
+  local l = mkLine(name, x, y, wd, 24, container)
   -- Fala 9b: realny Geyser.CommandLine (desktop i mudlet-web) NIE MA
   -- setText; ustawienie tekstu to print(t) (printCmdLine ZASTEPUJE
   -- zawartosc). clear()+append(t) odpada: w mudlet-web appendCmdLine
   -- czyta zywa wartosc pola (proba Reacta), wiec synchroniczne
   -- clear+append duplikowalo tekst przy kazdym re-renderze.
   l:print(text)
-  l:setAction(fn)
+  -- Fala 11: po Enter realny CommandLine czysci pole — bez odswiezenia
+  -- wpisana wartosc znikala z ekranu mimo zapisu w core ("wpis ginie i go
+  -- nie widac ale fizycznie sie wpisuje"). Render odbudowuje widok i
+  -- ustawia pole print() na swiezo zacommitowana wartosc.
+  l:setAction(function(t)
+    fn(t)
+    gui.render()
+  end)
   l:show()
   return l
 end
@@ -1548,14 +1577,14 @@ local function renderLibrary()
     core.openSettings()
     gui.render()
   end)
-  btn("truwer.hdr.help", 560, 6, 70, "Pomoc", function()
+  btn("truwer.hdr.help", 552, 6, 68, "Pomoc", function()
     core.openHelp()
     gui.render()
   end)
 
   local items = core.sortedLibrary()
   if #items == 0 then
-    txt("truwer.empty", 10, 40, 620, 24,
+    txt("truwer.empty", 10, 40, 610, 24,
       "Brak zapisanych scen. Utwórz nową lub zaimportuj.")
     return
   end
@@ -1577,51 +1606,65 @@ local function renderLibrary()
     core.exportSelected("txt")
     gui.render()
   end)
-  btn("truwer.bulk.del", 530, 36, 100, confirmLabel("__bulk__", "Usuń zaznaczone"),
+  btn("truwer.bulk.del", 520, 36, 100, confirmLabel("__bulk__", "Usuń zaznaczone"),
     clickDeleteSelected)
 
+  -- Fala 11: lista scen w przewijanym pojemniku (jak prompter/pomoc) —
+  -- przy wiekszej liczbie scen wiersze nie wychodza poza dol okna.
+  local scroll = gui.managed["truwer.lib.scroll"]
+  if not scroll then
+    scroll = Geyser.ScrollBox:new({
+      name = "truwer.lib.scroll", x = 10, y = 66, width = 610, height = 416,
+    }, gui.win)
+    gui.managed["truwer.lib.scroll"] = scroll
+  else
+    scroll:move(10, 66)
+    scroll:resize(610, 416)
+  end
+  scroll:show()
+
   for i, s in ipairs(items) do
-    local y = 66 + (i - 1) * ROW_H
+    local y = 4 + (i - 1) * ROW_H
     local sid = s.id -- domkniecie dla callbackow
-    btn("truwer.row." .. i .. ".sel", 10, y, 30,
+    btn("truwer.row." .. i .. ".sel", 4, y, 30,
       st.selectedIds[sid] and "[x]" or "[ ]", function()
         core.toggleSelected(sid)
         gui.render()
-      end)
+      end, scroll)
     local tytul = s.tytul
     if tytul == nil or tytul == "" then tytul = "(bez tytułu)" end
-    txt("truwer.row." .. i .. ".title", 46, y, 400, 20, tytul)
+    txt("truwer.row." .. i .. ".title", 38, y, 400, 20, fitText(tytul, 44), scroll)
     local meta = core.fmtDate(s.zmodyfikowano) .. " | "
     if s.autor ~= nil and s.autor ~= "" then
       meta = meta .. "autor: " .. s.autor .. " | "
     end
     meta = meta .. "kroki: " .. #s.kroki
-    txt("truwer.row." .. i .. ".meta", 46, y + 22, 500, 16, meta)
+    txt("truwer.row." .. i .. ".meta", 38, y + 22, 500, 16, fitText(meta, 56), scroll)
     local ya = y + 42
-    btn("truwer.row." .. i .. ".edit", 46, ya, 64, "Edycja", function()
+    btn("truwer.row." .. i .. ".edit", 38, ya, 64, "Edycja", function()
       gui.addType = "cmd" -- reset typu paska przy wejsciu (D27)
       core.openScene(sid, "edit")
       gui.render()
-    end)
-    btn("truwer.row." .. i .. ".play", 114, ya, 76, "Odtwarzaj", function()
+    end, scroll)
+    btn("truwer.row." .. i .. ".play", 106, ya, 76, "Odtwarzaj", function()
       gui.addType = "cmd"
       core.openScene(sid, "play")
       gui.render()
-    end)
-    btn("truwer.row." .. i .. ".dup", 194, ya, 60, "Powiel", function()
+    end, scroll)
+    btn("truwer.row." .. i .. ".dup", 186, ya, 60, "Powiel", function()
       core.duplicateScene(sid)
       gui.render()
-    end)
-    btn("truwer.row." .. i .. ".json", 258, ya, 48, "JSON", function()
+    end, scroll)
+    btn("truwer.row." .. i .. ".json", 250, ya, 48, "JSON", function()
       core.exportScene(sid, "json")
       gui.render()
-    end)
-    btn("truwer.row." .. i .. ".txt", 310, ya, 42, "TXT", function()
+    end, scroll)
+    btn("truwer.row." .. i .. ".txt", 302, ya, 42, "TXT", function()
       core.exportScene(sid, "txt")
       gui.render()
-    end)
-    btn("truwer.row." .. i .. ".del", 356, ya, 80, confirmLabel(sid, "Usuń"),
-      function() clickDeleteScene(sid) end)
+    end, scroll)
+    btn("truwer.row." .. i .. ".del", 348, ya, 80, confirmLabel(sid, "Usuń"),
+      function() clickDeleteScene(sid) end, scroll)
   end
 end
 
@@ -1634,7 +1677,7 @@ local function renderSceneHeader()
     core.goLibrary()
     gui.render()
   end)
-  btn("truwer.ed.help", 560, 6, 70, "Pomoc", function()
+  btn("truwer.ed.help", 552, 6, 68, "Pomoc", function()
     core.openHelp()
     gui.render()
   end)
@@ -1659,61 +1702,79 @@ local function renderEdit()
 
   renderSceneHeader()
 
-  line("truwer.ed.tytul", 10, 66, 620, s.tytul or "", function(t)
+  line("truwer.ed.tytul", 10, 66, 610, s.tytul or "", function(t)
     core.setTytul(t)
   end)
-  line("truwer.ed.autor", 10, 94, 620, s.autor or "", function(t)
+  line("truwer.ed.autor", 10, 94, 610, s.autor or "", function(t)
     core.setAutor(t)
   end)
-  txt("truwer.ed.hint", 10, 122, 620, 40,
-    "warianty komendy: a|b|c — prompter wylosuje jedną. Pauza: /pauza "
-      .. "lub /pauza N. Notatka: wiersz typu notatka (nie wysyłana).")
+  -- Fala 11: dwa osobne labele zamiast \n — setLabelText na desktopie
+  -- (Qt) nie lamie linii, wiec jednolinijkowy hint ucinal sie po prawej.
+  txt("truwer.ed.hint", 10, 122, 610, 20,
+    "warianty komendy: a|b|c — prompter wylosuje jedną. Pauza: /pauza lub /pauza N.")
+  txt("truwer.ed.hint2", 10, 142, 610, 20,
+    "Notatka: wiersz typu notatka (nie wysyłana).")
+
+  -- Fala 11: wiersze krokow w przewijanym pojemniku — przy wiekszej liczbie
+  -- krokow nie wychodza poza dol, a pasek "Dodaj krok" jest zawsze widoczny
+  -- (stala pozycja pod scrollem).
+  local scroll = gui.managed["truwer.ed.scroll"]
+  if not scroll then
+    scroll = Geyser.ScrollBox:new({
+      name = "truwer.ed.scroll", x = 10, y = 166, width = 610, height = 268,
+    }, gui.win)
+    gui.managed["truwer.ed.scroll"] = scroll
+  else
+    scroll:move(10, 166)
+    scroll:resize(610, 268)
+  end
+  scroll:show()
 
   if #s.kroki == 0 then
-    txt("truwer.ed.empty", 10, 168, 620, 24, "Brak kroków. Dodaj poniżej.")
+    txt("truwer.ed.empty", 6, 4, 590, 24, "Brak kroków. Dodaj poniżej.", scroll)
   end
   for i, k in ipairs(s.kroki) do
-    local y = 168 + (i - 1) * ED_ROW_H
+    local y = 4 + (i - 1) * ED_ROW_H
     local p = "truwer.ed.row." .. i
     local typ = k.typ
-    txt(p .. ".num", 10, y, 22, 24, i .. ".")
-    btn(p .. ".type", 36, y, 92, TYPE_LABEL[typ] or tostring(typ), function()
+    txt(p .. ".num", 6, y, 22, 24, i .. ".", scroll)
+    btn(p .. ".type", 32, y, 92, TYPE_LABEL[typ] or tostring(typ), function()
       core.changeType(i, TYPE_CYCLE[typ])
       gui.render()
-    end)
+    end, scroll)
     if typ == "pauza" then
-      txt(p .. ".pauselbl", 132, y, 50, 24, "PAUZA")
-      line(p .. ".sek", 186, y, 60,
+      txt(p .. ".pauselbl", 128, y, 50, 24, "PAUZA", scroll)
+      line(p .. ".sek", 182, y, 60,
         k.sekundy ~= nil and core.fmtNum(k.sekundy) or "", function(t)
           core.setStepSekundy(i, t)
-        end)
+        end, scroll)
     else
-      line(p .. ".text", 132, y, 270, k.tekst or "", function(t)
+      line(p .. ".text", 128, y, 250, k.tekst or "", function(t)
         core.setStepText(i, t)
-      end)
+      end, scroll)
     end
-    btn(p .. ".up", 408, y, 22, "^", function()
+    btn(p .. ".up", 384, y, 22, "^", function()
       core.moveStep(i, -1)
       gui.render()
-    end)
-    btn(p .. ".down", 434, y, 22, "v", function()
+    end, scroll)
+    btn(p .. ".down", 410, y, 22, "v", function()
       core.moveStep(i, 1)
       gui.render()
-    end)
-    btn(p .. ".ins", 460, y, 50, "Wstaw", function()
+    end, scroll)
+    btn(p .. ".ins", 436, y, 50, "Wstaw", function()
       core.insertStep(i + 1)
       gui.render()
-    end)
-    btn(p .. ".dup", 514, y, 52, "Powiel", function()
+    end, scroll)
+    btn(p .. ".dup", 490, y, 52, "Powiel", function()
       core.dupStep(i)
       gui.render()
-    end)
-    btn(p .. ".del", 570, y, 60, confirmLabel("step:" .. i, "X"), function()
+    end, scroll)
+    btn(p .. ".del", 546, y, 44, confirmLabel("step:" .. i, "X"), function()
       clickDeleteStep(i)
-    end)
+    end, scroll)
   end
 
-  local ay = 168 + #s.kroki * ED_ROW_H + 6
+  local ay = 440
   gui.addType = gui.addType or "cmd"
   btn("truwer.ed.add.type", 10, ay, 110, TYPE_LABEL[gui.addType], function()
     gui.addType = TYPE_CYCLE[gui.addType]
@@ -1755,42 +1816,42 @@ local function renderPlay()
   if not scroll then
     -- Fala 10: kontener DRUGIM argumentem (jak w mk powyzej).
     scroll = Geyser.ScrollBox:new({
-      name = "truwer.pl.scroll", x = 10, y = 118, width = 620, height = 236,
+      name = "truwer.pl.scroll", x = 10, y = 118, width = 610, height = 236,
     }, gui.win)
     gui.managed["truwer.pl.scroll"] = scroll
   else
     scroll:move(10, 118)
-    scroll:resize(620, 236)
+    scroll:resize(610, 236)
   end
   scroll:show()
 
   if total == 0 then
-    txt("truwer.pl.empty", 4, 4, 600, 22, "Brak kroków.", scroll)
+    txt("truwer.pl.empty", 4, 4, 590, 22, "Brak kroków.", scroll)
   end
   for i, k in ipairs(s.kroki) do
     local label = core.stepLabel(k)
     if i - 1 == st.cursor then label = "» " .. label end
     local idx = i - 1 -- kursor 0-based (paritet JS)
     if k.typ ~= "nota" then
-      btn("truwer.pl.row." .. i, 4, 4 + (i - 1) * 26, 600, label, function()
+      btn("truwer.pl.row." .. i, 4, 4 + (i - 1) * 26, 590, label, function()
         core.activateStep(idx)
         gui.render()
       end, scroll)
     else
-      txt("truwer.pl.row." .. i, 4, 4 + (i - 1) * 26, 600, 24, label, scroll)
+      txt("truwer.pl.row." .. i, 4, 4 + (i - 1) * 26, 590, 24, label, scroll)
     end
   end
 
   -- panel biezacego kroku (buildPlayPanel)
   local py = 366
   if st.cursor &gt;= total then
-    txt("truwer.pl.big", 10, py, 620, 28,
+    txt("truwer.pl.big", 10, py, 610, 28,
       total &gt; 0 and "Koniec sceny" or "Brak kroków")
   else
     local k = s.kroki[st.cursor + 1]
     if k.typ == "cmd" then
-      txt("truwer.pl.panelhint", 10, py, 620, 20, "do wysłania:")
-      line("truwer.pl.line", 10, py + 24, 620, st.playBuffer, function(t)
+      txt("truwer.pl.panelhint", 10, py, 610, 20, "do wysłania:")
+      line("truwer.pl.line", 10, py + 24, 610, st.playBuffer, function(t)
         core.setPlayBuffer(t) -- Enter: sync bufora z linii (D28)
         local _, err = core.wyslijBufor()
         if err then core.showStatus(err, "error") end
@@ -1821,7 +1882,8 @@ local function renderPlay()
     end
   end
 
-  local ny = 470
+  -- Fala 11: nawigacja nad paskiem statusu (STATUS_Y=490), nie na styk.
+  local ny = 456
   btn("truwer.pl.back", 10, ny, 90, "Wstecz", function()
     core.back()
     gui.render()
@@ -1903,16 +1965,16 @@ local function renderHelp()
   if not scroll then
     -- Fala 10: kontener DRUGIM argumentem (jak w mk powyzej).
     scroll = Geyser.ScrollBox:new({
-      name = "truwer.hp.scroll", x = 10, y = 40, width = 620, height = 456,
+      name = "truwer.hp.scroll", x = 10, y = 40, width = 610, height = 456,
     }, gui.win)
     gui.managed["truwer.hp.scroll"] = scroll
   else
     scroll:move(10, 40)
-    scroll:resize(620, 456)
+    scroll:resize(610, 456)
   end
   scroll:show()
   for i, lineTxt in ipairs(HELP_LINES) do
-    txt("truwer.hp.line." .. i, 4, 4 + (i - 1) * 20, 600, 18, lineTxt, scroll)
+    txt("truwer.hp.line." .. i, 4, 4 + (i - 1) * 20, 590, 18, lineTxt, scroll)
   end
 end
 
@@ -1922,8 +1984,8 @@ local function renderSettings()
     core.goLibrary()
     gui.render()
   end)
-  txt("truwer.st.label", 10, 50, 620, 24, "Ustawienia")
-  txt("truwer.st.info", 10, 80, 620, 20,
+  txt("truwer.st.label", 10, 50, 610, 24, "Ustawienia")
+  txt("truwer.st.info", 10, 80, 610, 20,
     "Biblioteka zapisywana w profilu: truwer/library.lua")
   btn("truwer.st.update", 10, 130, 180, "Sprawdź aktualizacje", function()
     truwer.updater.check(true)
@@ -1932,7 +1994,7 @@ end
 
 function gui.renderStatus()
   if not gui.win then return end
-  txt("truwer.status", 10, 508, 620, 20, core.state.statusMsg or "")
+  txt("truwer.status", 10, STATUS_Y, 610, 20, core.state.statusMsg or "")
 end
 
 -- D30: odswiez etykiete odliczania z rdzenia (co tick), bez pelnego renderu.
@@ -1963,7 +2025,7 @@ function gui.render()
     renderLibrary() -- awaryjnie: nieznany widok -&gt; lista
   end
   gui.renderStatus()
-  txt("truwer.footer", 10, 534, 620, 20,
+  txt("truwer.footer", 10, FOOTER_Y, 610, 20,
     "v" .. tostring(truwer.version) .. " | " .. tostring(truwer.build))
 end
 
