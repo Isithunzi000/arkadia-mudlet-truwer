@@ -606,9 +606,17 @@ local function legacyLibraryFiles()
   local dir = profileDir() .. "/truwer"
   local out = {}
   if type(lfs) == "table" and type(lfs.dir) == "function" then
-    local ok, iter = pcall(lfs.dir, dir)
+    -- Fala 10: desktop (Mudlet 4.22) zwraca z lfs.dir PARE (iterator,
+    -- stan) w stylu klasycznego LFS — iterator wymaga stanu jako arg #1
+    -- i bez niego rzuca "(directory metatable expected, got nil)".
+    -- Przypisanie samego iteratora gubilo stan, wiec petla wybuchala
+    -- przy kazdym starcie profilu (katalog pakunku profil/truwer istnieje
+    -- zawsze po instalacji), przerywajac truwer_init: okno nigdy nie
+    -- powstawalo na desktopie (wykryte na zywym kliencie). mudlet-web
+    -- zwraca pojedyncza closure, dla ktorej stan=nil nie szkodzi.
+    local ok, iter, state = pcall(lfs.dir, dir)
     if ok and iter then
-      for name in iter do
+      for name in iter, state do
         if type(name) == "string" and name:match("^library%..+%.lua$") then
           out[#out + 1] = dir .. "/" .. name
         end
@@ -1395,10 +1403,19 @@ gui.open = gui.open or false
 local function mk(name, x, y, wd, h, container)
   local l = gui.managed[name]
   if not l then
+    -- Fala 10: realny desktop (Mudlet 4.22, sprawdzone na zywym kliencie)
+    -- IGNORUJE container w cons — Geyser.Container:new(cons, container)
+    -- bierze rodzica WYLACZNIE z drugiego argumentu, a cons.container
+    -- (skopiowane przez copyTable) traktuje w base_add jako STARY kontener
+    -- do odczepienia, po czym widget laduje w korzeniu Geyser. Dzieci okna
+    -- byly wiec top-level labelami w main window: nie chowaly sie z oknem
+    -- ("osierocone labely") i znikaly pod nieprzezroczystym adjLabel po
+    -- kliknieciu okna (raiseOnClick podnosi tlo nad obce top-level labele).
+    -- mudlet-web ma identyczny Container:new (mirror mudlet-lua 1:1), wiec
+    -- drugi argument dziala tak samo na obu platformach.
     l = Geyser.Label:new({
       name = name, x = x, y = y, width = wd, height = h,
-      container = container or gui.win,
-    })
+    }, container or gui.win)
     gui.managed[name] = l
   else
     l:move(x, y)
@@ -1438,9 +1455,11 @@ end
 local function mkLine(name, x, y, wd, h)
   local l = gui.managed[name]
   if not l then
+    -- Fala 10: kontener DRUGIM argumentem (jak w mk powyzej) — cons.container
+    -- jest ignorowane przez realny Geyser (desktop 4.22 i mudlet-web).
     l = Geyser.CommandLine:new({
-      name = name, x = x, y = y, width = wd, height = h, container = gui.win,
-    })
+      name = name, x = x, y = y, width = wd, height = h,
+    }, gui.win)
     gui.managed[name] = l
   else
     l:move(x, y)
@@ -1734,10 +1753,10 @@ local function renderPlay()
   -- D29: lista krokow w przewijanym pojemniku
   local scroll = gui.managed["truwer.pl.scroll"]
   if not scroll then
+    -- Fala 10: kontener DRUGIM argumentem (jak w mk powyzej).
     scroll = Geyser.ScrollBox:new({
       name = "truwer.pl.scroll", x = 10, y = 118, width = 620, height = 236,
-      container = gui.win,
-    })
+    }, gui.win)
     gui.managed["truwer.pl.scroll"] = scroll
   else
     scroll:move(10, 118)
@@ -1882,10 +1901,10 @@ local function renderHelp()
   end)
   local scroll = gui.managed["truwer.hp.scroll"]
   if not scroll then
+    -- Fala 10: kontener DRUGIM argumentem (jak w mk powyzej).
     scroll = Geyser.ScrollBox:new({
       name = "truwer.hp.scroll", x = 10, y = 40, width = 620, height = 456,
-      container = gui.win,
-    })
+    }, gui.win)
     gui.managed["truwer.hp.scroll"] = scroll
   else
     scroll:move(10, 40)
