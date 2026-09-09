@@ -2273,7 +2273,7 @@ truwer = truwer or {}
 
 do
 
-local PLUGIN_VERSION = "1.0.3m"
+local PLUGIN_VERSION = "1.0.4m"
 local PLUGIN_BUILD   = "09-09-2026"
 
 truwer.version = PLUGIN_VERSION
