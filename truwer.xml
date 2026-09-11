@@ -1472,7 +1472,12 @@ end
 local function btn(name, x, y, wd, label, fn, container)
   local l = mk(name, x, y, wd, 24, container)
   setText(name, label)
-  l:setClickCallback(fn)
+  -- Fala 12: klik dowolnego przycisku najpierw spłukuje pola (wpis bez
+  -- Entera trafia do core), dopiero potem wykonuje akcje.
+  l:setClickCallback(function()
+    gui.flushFields()
+    fn()
+  end)
   l:show()
   return l
 end
@@ -1502,7 +1507,7 @@ local function mkLine(name, x, y, wd, h, container)
 end
 
 -- Linia z wstepnym tekstem i commitem na Enter (setAction).
-local function line(name, x, y, wd, text, fn, container)
+local function line(name, x, y, wd, text, fn, container, syncFn)
   local l = mkLine(name, x, y, wd, 24, container)
   -- Fala 9b: realny Geyser.CommandLine (desktop i mudlet-web) NIE MA
   -- setText; ustawienie tekstu to print(t) (printCmdLine ZASTEPUJE
@@ -1515,11 +1520,37 @@ local function line(name, x, y, wd, text, fn, container)
   -- nie widac ale fizycznie sie wpisuje"). Render odbudowuje widok i
   -- ustawia pole print() na swiezo zacommitowana wartosc.
   l:setAction(function(t)
+    gui.flushFields(name) -- wpisy bez Entera w INNYCH polach tez zapisz
     fn(t)
     gui.render()
   end)
+  -- Fala 12: rejestr pol do flushu (zapis wpisu bez Entera przy kliku
+  -- innej akcji). syncFn = BEZPIECZNY zapis (bez renderu i bez wysylki);
+  -- domyslnie fn, ale np. linia promptera podaje setPlayBuffer, bo jej
+  -- akcja Entera wysyla do gry (regulamin — flush nigdy nie wysyla).
+  gui.fields[name] = { commit = syncFn or fn, value = text }
   l:show()
   return l
+end
+
+-- Fala 12: wpis bez Entera nie ginie. Kazda akcja GUI (btn, Enter w innym
+-- polu) najpierw spłukuje widoczne pola: getText() zywej wartosci vs
+-- ostatnio wyrenderowana; roznica = niezatwierdzony Enterem wpis -&gt;
+-- commit. exceptName pomija wlasne pole przy Enterze (klient moze juz
+-- wyczyscic pole przed akcja — getText dalby "" i nadpisal wpis).
+function gui.flushFields(exceptName)
+  for name, f in pairs(gui.fields or {}) do
+    if name ~= exceptName then
+      local w = gui.managed[name]
+      if w and type(w.getText) == "function" then
+        local ok, t = pcall(w.getText, w)
+        if ok and type(t) == "string" and t ~= f.value then
+          f.commit(t)
+          f.value = t
+        end
+      end
+    end
+  end
 end
 
 -- Dwuklik usuwania (D18): pierwszy klik uzbraja na 4 s, drugi wykonuje.
@@ -1872,6 +1903,10 @@ local function renderPlay()
         local _, err = core.wyslijBufor()
         if err then core.showStatus(err, "error") end
         gui.render()
+      end, nil, function(t)
+        -- Fala 12: syncFn dla flushu — TYLKO sync bufora, bez wysylki
+        -- (klik innej akcji niz Enter/Wyslij nie moze wyslac do gry).
+        core.setPlayBuffer(t)
       end)
       if #core.splitVariants(k.tekst) &gt; 1 then
         btn("truwer.pl.reroll", 10, py + 54, 120, "Losuj ponownie", function()
@@ -2026,6 +2061,9 @@ end
 function gui.render()
   if not gui.win then return end
   for _, wg in pairs(gui.managed) do wg:hide() end
+  -- Fala 12: rejestr pol do flushu odbudowywany per widok (stare wpisy
+  -- z innego widoku/sceny nie moga commitowac w nie swoja scene).
+  gui.fields = {}
   local st = core.state
   if st.view == "library" then
     renderLibrary()
