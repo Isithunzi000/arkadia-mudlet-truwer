@@ -364,7 +364,11 @@ function core.normScene(o)
   return {
     id = (type(o.id) == "string" and o.id ~= "") and o.id or core.genId(),
     tytul = type(o.tytul) == "string" and o.tytul or "Scena",
-    autor = type(o.autor) == "string" and o.autor or "",
+    -- Fala 12: "autor" zastapione "opis" (opcjonalny opis sceny); stary
+    -- klucz "autor" akceptowany przy odczycie (legacy storage + eksporty
+    -- z dargoth), przy zapisie emitowany jest juz tylko "opis".
+    opis = type(o.opis) == "string" and o.opis
+      or (type(o.autor) == "string" and o.autor or ""),
     utworzono = isFiniteNum(o.utworzono) and o.utworzono or now,
     zmodyfikowano = isFiniteNum(o.zmodyfikowano) and o.zmodyfikowano or now,
     kroki = normKrokiOf(o),
@@ -376,7 +380,7 @@ function core.sceneFromDsl(text, title)
   return {
     id = core.genId(),
     tytul = title,
-    autor = "",
+    opis = "",
     utworzono = now,
     zmodyfikowano = now,
     kroki = core.krokiFromDsl(text),
@@ -389,7 +393,8 @@ function core.sceneFromJson(o)
   return {
     id = core.genId(), -- zawsze swieze id (import nie dziedziczy)
     tytul = type(o.tytul) == "string" and o.tytul or "Importowana scena",
-    autor = type(o.autor) == "string" and o.autor or "",
+    opis = type(o.opis) == "string" and o.opis
+      or (type(o.autor) == "string" and o.autor or ""), -- legacy (fala 12)
     utworzono = isFiniteNum(o.utworzono) and o.utworzono or now,
     zmodyfikowano = isFiniteNum(o.zmodyfikowano) and o.zmodyfikowano or now,
     kroki = normKrokiOf(o),
@@ -447,13 +452,14 @@ local function writeKrokiArr(kroki, lvl)
   return "[\n" .. table.concat(parts, ",\n") .. "\n" .. pad2sp(lvl) .. "]"
 end
 
--- koperta truwer-scene (format/wersja/tytul/autor/utworzono/zmodyfikowano/kroki)
+-- koperta truwer-scene (format/wersja/tytul/opis/utworzono/zmodyfikowano/kroki)
+-- Fala 12: klucz "autor" -&gt; "opis" (odczyt legacy w normScene/sceneFromJson).
 local function writeSceneJson(s, lvl)
   local lines = {
     pad2sp(lvl + 1) .. '"format": "truwer-scene"',
     pad2sp(lvl + 1) .. '"wersja": 1',
     pad2sp(lvl + 1) .. '"tytul": ' .. jsonStr(s.tytul),
-    pad2sp(lvl + 1) .. '"autor": ' .. jsonStr(s.autor),
+    pad2sp(lvl + 1) .. '"opis": ' .. jsonStr(s.opis),
     pad2sp(lvl + 1) .. '"utworzono": ' .. jsonNum(s.utworzono),
     pad2sp(lvl + 1) .. '"zmodyfikowano": ' .. jsonNum(s.zmodyfikowano),
     pad2sp(lvl + 1) .. '"kroki": ' .. writeKrokiArr(s.kroki or {}, lvl + 1),
@@ -824,10 +830,10 @@ function core.setTytul(tytul)
   core.saveLibrary()
 end
 
-function core.setAutor(autor)
+function core.setOpis(opis)
   local s = core.currentScene()
   if not s then return end
-  s.autor = tostring(autor)
+  s.opis = tostring(opis)
   touchScene(s)
   core.saveLibrary()
 end
@@ -1217,7 +1223,7 @@ end
 function core.newScene()
   local now = nowMs()
   local s = {
-    id = core.genId(), tytul = "Nowa scena", autor = "",
+    id = core.genId(), tytul = "Nowa scena", opis = "",
     utworzono = now, zmodyfikowano = now, kroki = {},
   }
   core.state.library[#core.state.library + 1] = s
@@ -1242,7 +1248,7 @@ function core.duplicateScene(id)
   local tytul = src.tytul
   if tytul == nil or tytul == "" then tytul = "Scena" end -- JS: s.tytul || "Scena"
   local copy = {
-    id = core.genId(), tytul = tytul .. " (kopia)", autor = src.autor,
+    id = core.genId(), tytul = tytul .. " (kopia)", opis = src.opis,
     utworzono = now, zmodyfikowano = now, kroki = kroki,
   }
   core.state.library[#core.state.library + 1] = copy
@@ -1645,8 +1651,8 @@ local function renderLibrary()
     if tytul == nil or tytul == "" then tytul = "(bez tytułu)" end
     txt("truwer.row." .. i .. ".title", 38, y, 400, 20, fitText(tytul, 44), scroll)
     local meta = core.fmtDate(s.zmodyfikowano) .. " | "
-    if s.autor ~= nil and s.autor ~= "" then
-      meta = meta .. "autor: " .. s.autor .. " | "
+    if s.opis ~= nil and s.opis ~= "" then
+      meta = meta .. s.opis .. " | "
     end
     meta = meta .. "kroki: " .. #s.kroki
     txt("truwer.row." .. i .. ".meta", 38, y + 22, 500, 16, fitText(meta, 56), scroll)
@@ -1715,8 +1721,8 @@ local function renderEdit()
   line("truwer.ed.tytul", 10, 66, 610, s.tytul or "", function(t)
     core.setTytul(t)
   end)
-  line("truwer.ed.autor", 10, 94, 610, s.autor or "", function(t)
-    core.setAutor(t)
+  line("truwer.ed.opis", 10, 94, 610, s.opis or "", function(t)
+    core.setOpis(t)
   end)
   -- Fala 11: dwa osobne labele zamiast \n — setLabelText na desktopie
   -- (Qt) nie lamie linii, wiec jednolinijkowy hint ucinal sie po prawej.
