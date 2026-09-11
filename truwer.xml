@@ -1547,6 +1547,9 @@ local STYLE = {
   title = "color:#f0f3f8;background-color:transparent;",
   meta = "color:#9aa4b5;background-color:transparent;",
   lbl = "color:#aeb8c8;background-color:transparent;",
+  -- Fala 15 (F15-C): stopka-link (klikalna, ale wyglada jak dotychczasowy
+  -- przygaszony tekst, bez ramki przycisku).
+  footlink = "color:#9aa4b5;background-color:transparent;border:none;text-align:left;",
 }
 local STATUS_STYLE = {
   info = "color:#9fc5e8;background-color:transparent;",
@@ -2141,8 +2144,9 @@ local HELP_LINES = {
   "  (klient rezerwuje / dla aliasów), żeby trafiły do gry.",
   "",
   "Aktualizacje:",
-  "- /truwer aktualizuj albo przycisk w Ustawieniach. Co 8 h truwer",
-  "  sam sprawdzi i powiadomi — pobierasz dopiero na swoją komendę.",
+  "- /truwer aktualizuj, klik w stopkę okna albo przycisk w Ustawieniach.",
+  "  Co 8 h truwer sam sprawdzi i powiadomi — pobierasz dopiero na",
+  "  swoją komendę.",
   "",
   "Ważne:",
   "- Plugin nigdy nie wysyła komend samodzielnie. Każda wysyłka to",
@@ -2180,7 +2184,14 @@ local function renderSettings()
   txt("truwer.st.label", 10, 50, 610, 24, "Ustawienia")
   txt("truwer.st.info", 10, 80, 610, 20,
     "Biblioteka zapisywana w profilu: truwer-dane/library.lua")
-  btn("truwer.st.update", 10, 130, 180, "Sprawdź aktualizacje", function()
+  -- Fala 15 (F15-C): katalog zapisu ZOSTAJE nieedytowalny (decyzja) —
+  -- copy mowi o tym wprost i wskazuje Zapisz jako jako droge zapisu
+  -- w inne miejsce, zamiast sugerowac, ze pole do edycji zniknelo.
+  txt("truwer.st.info2", 10, 102, 610, 20,
+    "Katalog jest nieedytowalny. Zapis w inne miejsce: Zapisz jako…", nil, STYLE.meta)
+  txt("truwer.st.info3", 10, 122, 610, 20,
+    "w bibliotece (tylko desktop).", nil, STYLE.meta)
+  btn("truwer.st.update", 10, 152, 180, "Sprawdź aktualizacje", function()
     truwer.updater.check(true)
   end)
 end
@@ -2224,8 +2235,15 @@ function gui.render()
     renderLibrary() -- awaryjnie: nieznany widok -&gt; lista
   end
   gui.renderStatus()
-  txt("truwer.footer", 10, FOOTER_Y, 610, 20,
-    "v" .. tostring(truwer.version) .. " | " .. tostring(truwer.build))
+  -- Fala 15 (F15-C): stopka klikalna (zgloszenie: "klik w wersje/build
+  -- -> sprawdzenie aktualizacji"). Ta sama reczna kontrola, co przycisk
+  -- w Ustawieniach i /truwer aktualizuj; tooltip podpowiada akcje.
+  local f = btn("truwer.footer", 10, FOOTER_Y, 610,
+    "v" .. tostring(truwer.version) .. " | " .. tostring(truwer.build),
+    function() truwer.updater.check(true) end, nil, STYLE.footlink)
+  if f and type(f.setToolTip) == "function" then
+    f:setToolTip("Kliknij, aby sprawdzić aktualizacje")
+  end
 end
 
 function gui.build()
@@ -2238,6 +2256,11 @@ function gui.build()
     name = "truwer",
     x = 40, y = 40, width = 640, height = 560,
     titleText = "Truwer - asystent odgrywania scen",
+    -- Fala 15 (F15-C): tytul okna w palecie pluginu (zgloszenie: drobny
+    -- i blady). Oficjalne parametry Geysera (setTitle): kolor + format
+    -- ('b' = bold, '##' = rozmiar pt) — bez dotykania wnetrza adjLabel.
+    titleTxtColor = "#f0f3f8",
+    titleFormat = "lb14",
   })
   gui.win:hide() -- start ukryty (jak zamkniety popup w dargoth)
   gui.render()
