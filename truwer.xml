@@ -1469,9 +1469,31 @@ local function setText(name, s)
   end
 end
 
-local function btn(name, x, y, wd, label, fn, container)
+-- Fala 12: paleta styli UI (zgloszenie: "wszystko w jednym kolorze, zlewa
+-- sie"). Przyciski wypelnione wg roli (primary = glowna akcja, danger =
+-- usuwanie), pola z tlem i ramka, tytul jasny / meta i etykiety przygaszone.
+local STYLE = {
+  btn = "background-color:#3a4150;color:#e8ebf0;border:1px solid #5a6478;border-radius:3px;",
+  primary = "background-color:#2e5d8c;color:#ffffff;border:1px solid #4a80b4;border-radius:3px;",
+  danger = "background-color:#7c3030;color:#ffffff;border:1px solid #a05050;border-radius:3px;",
+  field = "background-color:#20242c;color:#e8ebf0;border:1px solid #5a6478;",
+  title = "color:#f0f3f8;",
+  meta = "color:#9aa4b5;",
+  lbl = "color:#aeb8c8;",
+}
+local STATUS_STYLE = {
+  info = "color:#9fc5e8;",
+  success = "color:#8fd18a;",
+  error = "color:#e88a8a;",
+}
+local function applyStyle(l, css)
+  if l and type(l.setStyleSheet) == "function" then l:setStyleSheet(css) end
+end
+
+local function btn(name, x, y, wd, label, fn, container, style)
   local l = mk(name, x, y, wd, 24, container)
   setText(name, label)
+  applyStyle(l, style or STYLE.btn)
   -- Fala 12: klik dowolnego przycisku najpierw spłukuje pola (wpis bez
   -- Entera trafia do core), dopiero potem wykonuje akcje.
   l:setClickCallback(function()
@@ -1482,9 +1504,10 @@ local function btn(name, x, y, wd, label, fn, container)
   return l
 end
 
-local function txt(name, x, y, wd, h, text, container)
+local function txt(name, x, y, wd, h, text, container, style)
   local l = mk(name, x, y, wd, h, container)
   setText(name, text)
+  if style then applyStyle(l, style) end
   l:show()
   return l
 end
@@ -1509,6 +1532,8 @@ end
 -- Linia z wstepnym tekstem i commitem na Enter (setAction).
 local function line(name, x, y, wd, text, fn, container, syncFn)
   local l = mkLine(name, x, y, wd, 24, container)
+  -- Fala 12: pole z tlem i ramka (widac, gdzie sie wpisuje)
+  applyStyle(l, STYLE.field)
   -- Fala 9b: realny Geyser.CommandLine (desktop i mudlet-web) NIE MA
   -- setText; ustawienie tekstu to print(t) (printCmdLine ZASTEPUJE
   -- zawartosc). clear()+append(t) odpada: w mudlet-web appendCmdLine
@@ -1654,7 +1679,7 @@ local function renderLibrary()
     gui.render()
   end)
   btn("truwer.bulk.del", 488, 36, 132, confirmLabel("__bulk__", "Usuń zaznaczone"),
-    clickDeleteSelected)
+    clickDeleteSelected, nil, STYLE.danger)
 
   -- Fala 11: lista scen w przewijanym pojemniku (jak prompter/pomoc) —
   -- przy wiekszej liczbie scen wiersze nie wychodza poza dol okna.
@@ -1673,20 +1698,24 @@ local function renderLibrary()
   for i, s in ipairs(items) do
     local y = 4 + (i - 1) * ROW_H
     local sid = s.id -- domkniecie dla callbackow
+    -- Fala 12: zaznaczony wiersz wyroznia sie kolorem primary
     btn("truwer.row." .. i .. ".sel", 4, y, 30,
       st.selectedIds[sid] and "[x]" or "[ ]", function()
         core.toggleSelected(sid)
         gui.render()
-      end, scroll)
+      end, scroll, st.selectedIds[sid] and STYLE.primary or nil)
     local tytul = s.tytul
     if tytul == nil or tytul == "" then tytul = "(bez tytułu)" end
-    txt("truwer.row." .. i .. ".title", 38, y, 400, 20, fitText(tytul, 44), scroll)
+    -- Fala 12: tytul jasny, meta przygaszona (tekst sie nie zlewa)
+    txt("truwer.row." .. i .. ".title", 38, y, 400, 20, fitText(tytul, 44),
+      scroll, STYLE.title)
     local meta = core.fmtDate(s.zmodyfikowano) .. " | "
     if s.opis ~= nil and s.opis ~= "" then
       meta = meta .. s.opis .. " | "
     end
     meta = meta .. "kroki: " .. #s.kroki
-    txt("truwer.row." .. i .. ".meta", 38, y + 22, 500, 16, fitText(meta, 56), scroll)
+    txt("truwer.row." .. i .. ".meta", 38, y + 22, 500, 16, fitText(meta, 56),
+      scroll, STYLE.meta)
     local ya = y + 42
     btn("truwer.row." .. i .. ".edit", 38, ya, 64, "Edycja", function()
       gui.addType = "cmd" -- reset typu paska przy wejsciu (D27)
@@ -1697,7 +1726,7 @@ local function renderLibrary()
       gui.addType = "cmd"
       core.openScene(sid, "play")
       gui.render()
-    end, scroll)
+    end, scroll, STYLE.primary)
     btn("truwer.row." .. i .. ".dup", 186, ya, 60, "Powiel", function()
       core.duplicateScene(sid)
       gui.render()
@@ -1711,7 +1740,7 @@ local function renderLibrary()
       gui.render()
     end, scroll)
     btn("truwer.row." .. i .. ".del", 348, ya, 80, confirmLabel(sid, "Usuń"),
-      function() clickDeleteScene(sid) end, scroll)
+      function() clickDeleteScene(sid) end, scroll, STYLE.danger)
   end
 end
 
@@ -1728,7 +1757,7 @@ local function renderSceneHeader()
     core.openHelp()
     gui.render()
   end)
-  txt("truwer.ed.modelbl", 10, 36, 44, 24, "Tryb:")
+  txt("truwer.ed.modelbl", 10, 36, 44, 24, "Tryb:", nil, STYLE.lbl)
   btn("truwer.ed.mode.edit", 60, 36, 90, "Edycja", function()
     core.setMode("edit")
     gui.render()
@@ -1750,11 +1779,11 @@ local function renderEdit()
   renderSceneHeader()
 
   -- Fala 12: etykiety nad polami (zgloszenie: nie wiadomo bylo, co jest czym).
-  txt("truwer.ed.lbl.tytul", 10, 64, 610, 16, "Tytuł sceny:")
+  txt("truwer.ed.lbl.tytul", 10, 64, 610, 16, "Tytuł sceny:", nil, STYLE.lbl)
   line("truwer.ed.tytul", 10, 82, 610, s.tytul or "", function(t)
     core.setTytul(t)
   end)
-  txt("truwer.ed.lbl.opis", 10, 110, 610, 16, "Opis (opcjonalny):")
+  txt("truwer.ed.lbl.opis", 10, 110, 610, 16, "Opis (opcjonalny):", nil, STYLE.lbl)
   line("truwer.ed.opis", 10, 128, 610, s.opis or "", function(t)
     core.setOpis(t)
   end)
@@ -1765,7 +1794,7 @@ local function renderEdit()
   txt("truwer.ed.hint2", 10, 176, 610, 20,
     "Notatka: wiersz typu notatka (nie wysyłana).")
   -- Fala 12: naglowek kolumny tresci krokow.
-  txt("truwer.ed.colhdr", 128, 200, 250, 16, "Treść kroku:")
+  txt("truwer.ed.colhdr", 128, 200, 250, 16, "Treść kroku:", nil, STYLE.lbl)
 
   -- Fala 11: wiersze krokow w przewijanym pojemniku — przy wiekszej liczbie
   -- krokow nie wychodza poza dol, a pasek "Dodaj krok" jest zawsze widoczny
@@ -1824,7 +1853,7 @@ local function renderEdit()
     end, scroll)
     btn(p .. ".del", 546, y, 44, confirmLabel("step:" .. i, "X", "!"), function()
       clickDeleteStep(i)
-    end, scroll)
+    end, scroll, STYLE.danger)
   end
 
   local ay = 440
@@ -1836,7 +1865,7 @@ local function renderEdit()
   btn("truwer.ed.add.btn", 126, ay, 100, "Dodaj krok", function()
     core.addStep(gui.addType)
     gui.render()
-  end)
+  end, nil, STYLE.primary)
 end
 
 -- Prompter (fala 4): port renderPlay/buildPlayPanel z dargoth. Start pauzy
@@ -1886,10 +1915,11 @@ local function renderPlay()
     if i - 1 == st.cursor then label = "» " .. label end
     local idx = i - 1 -- kursor 0-based (paritet JS)
     if k.typ ~= "nota" then
+      -- Fala 12: biezacy krok wyrozniony kolorem primary
       btn("truwer.pl.row." .. i, 4, 4 + (i - 1) * 26, 590, label, function()
         core.activateStep(idx)
         gui.render()
-      end, scroll)
+      end, scroll, (i - 1 == st.cursor) and STYLE.primary or nil)
     else
       txt("truwer.pl.row." .. i, 4, 4 + (i - 1) * 26, 590, 24, label, scroll)
     end
@@ -1927,7 +1957,7 @@ local function renderPlay()
         local _, err = core.wyslijBufor()
         if err then core.showStatus(err, "error") end
         gui.render()
-      end)
+      end, nil, STYLE.primary)
     elseif k.typ == "pauza" then
       txt("truwer.pl.pauselbl", 10, py, 90, 28, "PAUZA")
       if k.sekundy ~= nil and k.sekundy &gt; 0 then
@@ -2052,7 +2082,10 @@ end
 
 function gui.renderStatus()
   if not gui.win then return end
-  txt("truwer.status", 10, STATUS_Y, 610, 20, core.state.statusMsg or "")
+  -- Fala 12: status kolorowy wg rodzaju (info/success/error)
+  local kind = core.state.statusKind or "info"
+  txt("truwer.status", 10, STATUS_Y, 610, 20, core.state.statusMsg or "",
+    nil, STATUS_STYLE[kind] or STATUS_STYLE.info)
 end
 
 -- D30: odswiez etykiete odliczania z rdzenia (co tick), bez pelnego renderu.
