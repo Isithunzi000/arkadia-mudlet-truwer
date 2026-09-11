@@ -1749,18 +1749,23 @@ local function renderEdit()
 
   renderSceneHeader()
 
-  line("truwer.ed.tytul", 10, 66, 610, s.tytul or "", function(t)
+  -- Fala 12: etykiety nad polami (zgloszenie: nie wiadomo bylo, co jest czym).
+  txt("truwer.ed.lbl.tytul", 10, 64, 610, 16, "Tytuł sceny:")
+  line("truwer.ed.tytul", 10, 82, 610, s.tytul or "", function(t)
     core.setTytul(t)
   end)
-  line("truwer.ed.opis", 10, 94, 610, s.opis or "", function(t)
+  txt("truwer.ed.lbl.opis", 10, 110, 610, 16, "Opis (opcjonalny):")
+  line("truwer.ed.opis", 10, 128, 610, s.opis or "", function(t)
     core.setOpis(t)
   end)
   -- Fala 11: dwa osobne labele zamiast \n — setLabelText na desktopie
   -- (Qt) nie lamie linii, wiec jednolinijkowy hint ucinal sie po prawej.
-  txt("truwer.ed.hint", 10, 122, 610, 20,
+  txt("truwer.ed.hint", 10, 156, 610, 20,
     "warianty komendy: a|b|c — prompter wylosuje jedną. Pauza: /pauza lub /pauza N.")
-  txt("truwer.ed.hint2", 10, 142, 610, 20,
+  txt("truwer.ed.hint2", 10, 176, 610, 20,
     "Notatka: wiersz typu notatka (nie wysyłana).")
+  -- Fala 12: naglowek kolumny tresci krokow.
+  txt("truwer.ed.colhdr", 128, 200, 250, 16, "Treść kroku:")
 
   -- Fala 11: wiersze krokow w przewijanym pojemniku — przy wiekszej liczbie
   -- krokow nie wychodza poza dol, a pasek "Dodaj krok" jest zawsze widoczny
@@ -1768,12 +1773,12 @@ local function renderEdit()
   local scroll = gui.managed["truwer.ed.scroll"]
   if not scroll then
     scroll = Geyser.ScrollBox:new({
-      name = "truwer.ed.scroll", x = 10, y = 166, width = 610, height = 268,
+      name = "truwer.ed.scroll", x = 10, y = 220, width = 610, height = 214,
     }, gui.win)
     gui.managed["truwer.ed.scroll"] = scroll
   else
-    scroll:move(10, 166)
-    scroll:resize(610, 268)
+    scroll:move(10, 220)
+    scroll:resize(610, 214)
   end
   scroll:show()
 
@@ -1790,8 +1795,9 @@ local function renderEdit()
       gui.render()
     end, scroll)
     if typ == "pauza" then
-      txt(p .. ".pauselbl", 128, y, 50, 24, "PAUZA", scroll)
-      line(p .. ".sek", 182, y, 60,
+      -- Fala 12: etykieta "sekundy:" zamiast "PAUZA" (typ widac na przycisku typu)
+      txt(p .. ".pauselbl", 128, y, 54, 24, "sekundy:", scroll)
+      line(p .. ".sek", 186, y, 56,
         k.sekundy ~= nil and core.fmtNum(k.sekundy) or "", function(t)
           core.setStepSekundy(i, t)
         end, scroll)
@@ -1897,7 +1903,8 @@ local function renderPlay()
   else
     local k = s.kroki[st.cursor + 1]
     if k.typ == "cmd" then
-      txt("truwer.pl.panelhint", 10, py, 610, 20, "do wysłania:")
+      -- Fala 12: hint wyjasnia, jak wyslac komende
+      txt("truwer.pl.panelhint", 10, py, 610, 20, "do wysłania (Enter = wyślij):")
       line("truwer.pl.line", 10, py + 24, 610, st.playBuffer, function(t)
         core.setPlayBuffer(t) -- Enter: sync bufora z linii (D28)
         local _, err = core.wyslijBufor()
