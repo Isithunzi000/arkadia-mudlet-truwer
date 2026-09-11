@@ -1541,14 +1541,16 @@ local function clickDeleteSelected()
   gui.render()
 end
 
-local function confirmLabel(id, base)
+local function confirmLabel(id, base, armedText)
   if gui.confirm.id == id and core.nowMs() - gui.confirm.at &lt; CONFIRM_TTL_MS then
-    return "Na pewno?"
+    return armedText or "Na pewno?"
   end
   return base
 end
 
 -- Dwuklik usuwania kroku (D23): klucz potwierdzenia per pozycja wiersza.
+-- Fala 12: przycisk ma 44 px, "Na pewno?" sie nie miescilo (uciety napis
+-- na zywym kliencie) — uzbrojenie pokazuje "!" + instrukcje na statusie.
 local function clickDeleteStep(i)
   local key = "step:" .. i
   local now = core.nowMs()
@@ -1558,6 +1560,7 @@ local function clickDeleteStep(i)
   else
     gui.confirm.id = key
     gui.confirm.at = now
+    core.showStatus("Kliknij ponownie, aby usunąć krok " .. i .. ".", "info")
   end
   gui.render()
 end
@@ -1597,21 +1600,23 @@ local function renderLibrary()
   local selN = 0
   for _ in pairs(st.selectedIds) do selN = selN + 1 end
   local allSel = selN == #items
-  btn("truwer.bulk.all", 10, 36, 140,
+  -- Fala 12: uklad bez nakladki (TXT konczyl sie na 524, del zaczynal na
+  -- 520) i z miejscem na napis "Usun zaznaczone" (132 px zamiast 100).
+  btn("truwer.bulk.all", 10, 36, 130,
     allSel and "Odznacz wszystkie" or "Zaznacz wszystkie", function()
       core.selectAll(core.sortedLibrary())
       gui.render()
     end)
-  txt("truwer.bulk.count", 156, 36, 140, 24, "zaznaczone: " .. selN .. "/" .. #items)
-  btn("truwer.bulk.json", 318, 36, 100, "Pobierz JSON", function()
+  txt("truwer.bulk.count", 146, 36, 130, 24, "zaznaczone: " .. selN .. "/" .. #items)
+  btn("truwer.bulk.json", 282, 36, 100, "Pobierz JSON", function()
     core.exportSelected("json")
     gui.render()
   end)
-  btn("truwer.bulk.txt", 424, 36, 100, "Pobierz TXT", function()
+  btn("truwer.bulk.txt", 388, 36, 94, "Pobierz TXT", function()
     core.exportSelected("txt")
     gui.render()
   end)
-  btn("truwer.bulk.del", 520, 36, 100, confirmLabel("__bulk__", "Usuń zaznaczone"),
+  btn("truwer.bulk.del", 488, 36, 132, confirmLabel("__bulk__", "Usuń zaznaczone"),
     clickDeleteSelected)
 
   -- Fala 11: lista scen w przewijanym pojemniku (jak prompter/pomoc) —
@@ -1774,7 +1779,7 @@ local function renderEdit()
       core.dupStep(i)
       gui.render()
     end, scroll)
-    btn(p .. ".del", 546, y, 44, confirmLabel("step:" .. i, "X"), function()
+    btn(p .. ".del", 546, y, 44, confirmLabel("step:" .. i, "X", "!"), function()
       clickDeleteStep(i)
     end, scroll)
   end
