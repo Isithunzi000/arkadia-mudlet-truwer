@@ -1793,10 +1793,14 @@ local function renderEdit()
   end)
   -- Fala 11: dwa osobne labele zamiast \n — setLabelText na desktopie
   -- (Qt) nie lamie linii, wiec jednolinijkowy hint ucinal sie po prawej.
+  -- Fala 12 (B7): hinty przygaszonym kolorem na przezroczystym tle —
+  -- domyslny label Geysera dawal czarny tekst na ciemnym pasku
+  -- (nieczytelne; weryfikacja na zywym Mudlecie 5.0.1).
   txt("truwer.ed.hint", 10, 156, 610, 20,
-    "warianty komendy: a|b|c — prompter wylosuje jedną. Pauza: /pauza lub /pauza N.")
+    "warianty komendy: a|b|c — prompter wylosuje jedną. Pauza: /pauza lub /pauza N.",
+    nil, STYLE.meta)
   txt("truwer.ed.hint2", 10, 176, 610, 20,
-    "Notatka: wiersz typu notatka (nie wysyłana).")
+    "Notatka: wiersz typu notatka (nie wysyłana).", nil, STYLE.meta)
   -- Fala 12: naglowek kolumny tresci krokow.
   txt("truwer.ed.colhdr", 128, 200, 250, 16, "Treść kroku:", nil, STYLE.lbl)
 
