@@ -1478,7 +1478,14 @@ local TYPE_LABEL = { cmd = "Typ: komenda", pauza = "Typ: pauza", nota = "Typ: no
 -- wiec footer ucinalo, a listy bez scrolla wyjezdzaly poza dol.
 local RIGHT_EDGE = 620 -- x + w =&lt; 620 (prawa krawedz Inside)
 local BOTTOM_EDGE = 540 -- y + h =&lt; 540 (dolna widoczna granica)
-local STATUS_Y = 490 -- pasek statusu nad stopka
+-- Fala 15 (F15-D): status dwuwierszowy — dlugie komunikaty (np. sciezki
+-- zapisu z "Zapisz jako...") ucinaly sie za prawa krawedzia okna. Dwie
+-- linie po 95 znakow (610 px) ze zawijaniem na granicy slowa; koniec
+-- drugiej linii (488 + 18 = 506) zostaje nad stopka (FOOTER_Y = 514).
+local STATUS_Y = 470 -- linia 1 statusu
+local STATUS_Y2 = 488 -- linia 2 statusu
+local STATUS_LINE_H = 18
+local STATUS_MAX = 95 -- znakow na linie (UTF-8, nie bajtow)
 local FOOTER_Y = 514 -- stopka: 514 + 20 = 534, miesci sie w 540
 
 -- Fala 11: uciecie dlugiego tekstu z wielokropkiem (bezpieczne dla UTF-8:
@@ -1491,6 +1498,32 @@ local function fitText(s, maxChars)
   end
   if #chars &lt;= maxChars then return s end
   return table.concat(chars, "", 1, maxChars - 3) .. "..."
+end
+
+-- Fala 15 (F15-D): podzial statusu na dwie linie po granicy slowa.
+-- Ciecie po znakach (UTF-8, jak fitText). Gdy w pierwszych STATUS_MAX
+-- znakach nie ma spacji (np. dluga sciezka), tniemy twardo na granicy
+-- linii. Druga linia w razie potrzeby ucinana wielokropkiem.
+local function splitStatus(msg)
+  msg = tostring(msg or "")
+  local chars = {}
+  for c in msg:gmatch("[\1-\127\194-\244][\128-\191]*") do
+    chars[#chars + 1] = c
+  end
+  if #chars &lt;= STATUS_MAX then return msg, "" end
+  local cut
+  for i = 1, STATUS_MAX do
+    if chars[i] == " " then cut = i end
+  end
+  local line1, rest
+  if cut and cut &lt; #chars then
+    line1 = table.concat(chars, "", 1, cut - 1)
+    rest = table.concat(chars, "", cut + 1)
+  else
+    line1 = table.concat(chars, "", 1, STATUS_MAX)
+    rest = table.concat(chars, "", STATUS_MAX + 1)
+  end
+  return line1, fitText(rest, STATUS_MAX)
 end
 
 gui.managed = gui.managed or {}
@@ -1759,7 +1792,9 @@ local function renderLibrary()
   -- mudlet-web zostaje na Pobierz JSON/TXT (pobieranie przegladarki,
   -- limit platformy). Wpis w pole nazwy jest opcjonalny; puste =
   -- domyslna truwer-sceny-&lt;stamp&gt;.json.
-  local listY, listH = 66, 416
+  -- Fala 15 (F15-D): lista konczy sie na 468 — nad dwuwierszowym
+  -- statusem (linia 1 od y=470).
+  local listY, listH = 66, 402
   if type(getMudletVersion) == "function" then
     txt("truwer.bulk.savelbl", 10, 66, 300, 16,
       "Nazwa pliku (opcjonalna):", nil, STYLE.lbl)
@@ -1771,7 +1806,7 @@ local function renderLibrary()
     end, nil, STYLE.primary)
     txt("truwer.bulk.savehint", 456, 84, 164, 32,
       "JSON, wybor katalogu", nil, STYLE.meta)
-    listY, listH = 122, 360
+    listY, listH = 122, 346 -- F15-D: koniec na 468 (nad statusem)
   end
 
   -- Fala 11: lista scen w przewijanym pojemniku (jak prompter/pomoc) —
@@ -2031,7 +2066,9 @@ local function renderPlay()
   end
 
   -- panel biezacego kroku (buildPlayPanel)
-  local py = 366
+  -- Fala 15 (F15-D): panel wyzej (bylo 366), zeby nawigacja zdazyla
+  -- nad dwuwierszowym statusem (linia 1 od y=470).
+  local py = 358
   if st.cursor &gt;= total then
     txt("truwer.pl.big", 10, py, 610, 28,
       total &gt; 0 and "Koniec sceny" or "Brak kroków")
@@ -2075,8 +2112,9 @@ local function renderPlay()
     end
   end
 
-  -- Fala 11: nawigacja nad paskiem statusu (STATUS_Y=490), nie na styk.
-  local ny = 456
+  -- Fala 11: nawigacja nad paskiem statusu, nie na styk.
+  -- Fala 15 (F15-D): status dwuwierszowy od y=470 — nawigacja 440..464.
+  local ny = 440
   btn("truwer.pl.back", 10, ny, 90, "Wstecz", function()
     core.back()
     gui.render()
@@ -2162,7 +2200,8 @@ local function renderHelp()
   if not scroll then
     -- Fala 10: kontener DRUGIM argumentem (jak w mk powyzej).
     scroll = Geyser.ScrollBox:new({
-      name = "truwer.hp.scroll", x = 10, y = 40, width = 610, height = 456,
+      -- Fala 15 (F15-D): koniec na 468 (nad dwuwierszowym statusem).
+      name = "truwer.hp.scroll", x = 10, y = 40, width = 610, height = 428,
     }, gui.win)
     gui.managed["truwer.hp.scroll"] = scroll
   else
@@ -2199,9 +2238,13 @@ end
 function gui.renderStatus()
   if not gui.win then return end
   -- Fala 12: status kolorowy wg rodzaju (info/success/error)
+  -- Fala 15 (F15-D): dwie linie ze zawijaniem (splitStatus) — koniec
+  -- ucinania dlugich komunikatow za krawedzia okna.
   local kind = core.state.statusKind or "info"
-  txt("truwer.status", 10, STATUS_Y, 610, 20, core.state.statusMsg or "",
-    nil, STATUS_STYLE[kind] or STATUS_STYLE.info)
+  local st = STATUS_STYLE[kind] or STATUS_STYLE.info
+  local line1, line2 = splitStatus(core.state.statusMsg or "")
+  txt("truwer.status", 10, STATUS_Y, 610, STATUS_LINE_H, line1, nil, st)
+  txt("truwer.status2", 10, STATUS_Y2, 610, STATUS_LINE_H, line2, nil, st)
 end
 
 -- D30: odswiez etykiete odliczania z rdzenia (co tick), bez pelnego renderu.
@@ -2495,7 +2538,7 @@ truwer = truwer or {}
 
 do
 
-local PLUGIN_VERSION = "1.0.6m"
+local PLUGIN_VERSION = "1.0.7m"
 local PLUGIN_BUILD   = "11-09-2026"
 
 truwer.version = PLUGIN_VERSION
