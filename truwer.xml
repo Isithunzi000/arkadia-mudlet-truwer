@@ -1354,8 +1354,9 @@ end
 -- katalogu wybranego natywnym dialogiem (invokeFileDialog(false, ...) =
 -- QFileDialog::getExistingDirectory na desktopie; getSaveFileName nie jest
 -- zbindowane do Lua, wiec katalog + osobne pole nazwy). Wola je wylacznie
--- przycisk renderowany tylko na desktopie (feature-detect setLabelText jak
--- fala 9b) — mudlet-web nie ma natywnego save-as (limit platformy).
+-- przycisk renderowany tylko na desktopie (detektor getMudletVersion —
+-- patrz renderLibrary) — mudlet-web nie ma natywnego save-as (limit
+-- platformy).
 function core.exportSelectedAs()
   local scenes = core.selectedScenes()
   if #scenes == 0 then return nil end -- jak exportSelected: bez dialogu na prozno
@@ -1714,13 +1715,16 @@ local function renderLibrary()
   btn("truwer.bulk.del", 488, 36, 132, confirmLabel("__bulk__", "Usuń zaznaczone"),
     clickDeleteSelected, nil, STYLE.danger)
 
-  -- Fala 13 (F13-B): wiersz "Zapisz jako..." tylko na desktopie
-  -- (feature-detect setLabelText jak fala 9b) — natywny dialog wyboru
-  -- katalogu istnieje tylko tam; mudlet-web zostaje na Pobierz JSON/TXT
-  -- (pobieranie przegladarki, limit platformy). Wpis w pole nazwy jest
-  -- opcjonalny; puste = domyslna truwer-sceny-&lt;stamp&gt;.json.
+  -- Fala 13 (F13-B): wiersz "Zapisz jako..." tylko na desktopie.
+  -- Detektor: getMudletVersion — mudlet-web (LuaRuntime.ts) go NIE
+  -- binduje, desktop 5.0.1 ma (sonda na zywym AppImage). Uwaga: marker
+  -- z fali 9b (setLabelText) odpada — na realnym desktopie 5.0.1 tez
+  -- jest nil, wiec przycisk by sie NIGDY nie pokazal.
+  -- mudlet-web zostaje na Pobierz JSON/TXT (pobieranie przegladarki,
+  -- limit platformy). Wpis w pole nazwy jest opcjonalny; puste =
+  -- domyslna truwer-sceny-&lt;stamp&gt;.json.
   local listY, listH = 66, 416
-  if type(setLabelText) == "function" then
+  if type(getMudletVersion) == "function" then
     txt("truwer.bulk.savelbl", 10, 66, 300, 16,
       "Nazwa pliku (opcjonalna):", nil, STYLE.lbl)
     line("truwer.bulk.savename", 10, 84, 300, core.state.saveAsName or "",
@@ -1730,7 +1734,7 @@ local function renderLibrary()
       gui.render()
     end, nil, STYLE.primary)
     txt("truwer.bulk.savehint", 456, 84, 164, 32,
-      "JSON, katalog do wyboru (tylko desktop)", nil, STYLE.meta)
+      "JSON, wybor katalogu", nil, STYLE.meta)
     listY, listH = 122, 360
   end
 
