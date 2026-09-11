@@ -583,8 +583,13 @@ end
 
 local function ensureDir()
   -- table.save nie tworzy katalogow; lfs jest w Mudlecie, ale strzegmy sie
+  -- Fala 12: tworzymy tez podkatalog eksport/ — desktopowe io.open(..."w")
+  -- wymaga istniejacego katalogu nadrzednego, wiec eksport JSON/TXT padal
+  -- z "Blad eksportu pliku." na profilu bez recznie utworzonego eksport/
+  -- (zgłoszenie z AppImage; mudlet-web tolerowal brak katalogu).
   if type(lfs) == "table" and type(lfs.mkdir) == "function" then
     pcall(lfs.mkdir, profileDir() .. "/truwer")
+    pcall(lfs.mkdir, profileDir() .. "/truwer/eksport")
   end
 end
 
