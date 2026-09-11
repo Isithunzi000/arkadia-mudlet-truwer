@@ -16,7 +16,7 @@ end</script>
 end</script>
 			<command />
 			<packageName />
-			<regex>^/truwer\s+pomoc$</regex>
+			<regex>^/truwer\s+(pomoc|help)$</regex>
 		</Alias>
 		<Alias isActive="yes" isFolder="no">
 			<name>truwer_aktualizuj_alias</name>
@@ -1335,7 +1335,13 @@ end
 
 function core.exportSelected(fmt)
   local scenes = core.selectedScenes()
-  if #scenes == 0 then return nil end -- dargoth: wczesny return (disabled)
+  -- Fala 15 (F15-A): przyciski zbiorcze sa u nas zawsze aktywne (w dargoth
+  -- disabled), wiec cisza przy pustym zaznaczeniu byla zgloszeniem —
+  -- status mowi, co zrobic.
+  if #scenes == 0 then
+    core.showStatus("Najpierw zaznacz sceny.", "info")
+    return nil
+  end
   local content
   if fmt == "json" then content = core.bulkJson(scenes)
   else content = core.bulkTxt(scenes) end
@@ -1359,7 +1365,12 @@ end
 -- platformy).
 function core.exportSelectedAs()
   local scenes = core.selectedScenes()
-  if #scenes == 0 then return nil end -- jak exportSelected: bez dialogu na prozno
+  -- Fala 15 (F15-A): jak exportSelected — komunikat zamiast ciszy,
+  -- dialog nie otwiera sie na prozno.
+  if #scenes == 0 then
+    core.showStatus("Najpierw zaznacz sceny.", "info")
+    return nil
+  end
   local dir = invokeFileDialog(false, "Wybierz katalog zapisu")
   if type(dir) ~= "string" or dir == "" then
     core.showStatus("Zapis anulowany.", "info")
@@ -2459,7 +2470,7 @@ function truwer.onPomoc()
   cecho("&lt;green&gt;" .. truwer.banner() .. "&lt;reset&gt;\n")
   cecho("Aliasy:\n")
   cecho("  &lt;yellow&gt;/truwer&lt;reset&gt; - otwiera/zamyka okno truwera\n")
-  cecho("  &lt;yellow&gt;/truwer pomoc&lt;reset&gt; - ten tekst\n")
+  cecho("  &lt;yellow&gt;/truwer pomoc&lt;reset&gt; (albo &lt;yellow&gt;/truwer help&lt;reset&gt;) - ten tekst\n")
   cecho("  &lt;yellow&gt;/truwer aktualizuj&lt;reset&gt; - sprawdza i pobiera nowa wersje\n")
   cecho("Pelna pomoc: przycisk &lt;yellow&gt;Pomoc&lt;reset&gt; w oknie truwera.\n")
   cecho("Truwer nigdy nie wysyla komend sam - kazda wysylka to Twoj klik.\n")
