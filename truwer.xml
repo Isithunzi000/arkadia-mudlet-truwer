@@ -1391,6 +1391,31 @@ function core.exportSelectedAs()
   return path
 end
 
+-- Fala 15 (F15-B): "Zapisz jako..." per scena — jak exportScene(id, "json"),
+-- ale do katalogu wybranego natywnym dialogiem; nazwa pliku z tytulu.
+-- Wola ja wylacznie przycisk wiersza renderowany tylko na desktopie
+-- (detektor getMudletVersion — jak wiersz zbiorczy z fali 13).
+function core.exportSceneAs(id)
+  local s
+  for _, x in ipairs(core.state.library) do
+    if x.id == id then s = x break end
+  end
+  if not s then return nil, "Brak sceny." end
+  local dir = invokeFileDialog(false, "Wybierz katalog zapisu")
+  if type(dir) ~= "string" or dir == "" then
+    core.showStatus("Zapis anulowany.", "info")
+    return nil
+  end
+  local path = dir .. "/" .. core.safeName(s.tytul) .. ".json"
+  local ok, err = writeTextFile(path, core.jsonFromScene(s))
+  if not ok then
+    core.showStatus("Błąd zapisu pliku.", "error")
+    return nil, err
+  end
+  core.showStatus("Zapisano: " .. path, "success")
+  return path
+end
+
 -- Import z pliku (D16): sciezka z invokeFileDialog; anulowany dialog = nil.
 -- Semantyka statusow identyczna jak onImportText w dargoth.
 function core.importFile(path)
@@ -1806,6 +1831,14 @@ local function renderLibrary()
     end, scroll)
     btn("truwer.row." .. i .. ".del", 348, ya, 80, confirmLabel(sid, "Usuń"),
       function() clickDeleteScene(sid) end, scroll, STYLE.danger)
+    -- Fala 15 (F15-B): Zapisz jako... per scena, desktop-only (natywny
+    -- dialog katalogu) — wolny skrawek wiersza za przyciskiem Usun.
+    if type(getMudletVersion) == "function" then
+      btn("truwer.row." .. i .. ".saveas", 436, ya, 110, "Zapisz jako…", function()
+        core.exportSceneAs(sid)
+        gui.render()
+      end, scroll)
+    end
   end
 end
 
@@ -2101,8 +2134,9 @@ local HELP_LINES = {
   "  pauza; linia od # to notatka.",
   "- Eksport: JSON (pełna kopia) lub TXT (prosty tekst), do katalogu",
   "  truwer-dane/eksport w profilu.",
-  "- Zapisz jako… (tylko desktop): wybierasz katalog i możesz",
-  "  podać nazwę pliku. Na mudlet-web brak (limit platformy).",
+  "- Zapisz jako… (tylko desktop): zbiorczo nad listą albo per scena",
+  "  przycisk w wierszu. Wybierasz katalog; zbiorczo możesz też podać",
+  "  nazwę pliku. Na mudlet-web brak (limit platformy).",
   "- Import jest dosłowny: komendy z wiodącym / trzeba pozbawić /",
   "  (klient rezerwuje / dla aliasów), żeby trafiły do gry.",
   "",
