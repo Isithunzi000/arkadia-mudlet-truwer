@@ -1487,16 +1487,13 @@ local function mk(name, x, y, wd, h, container)
   return l
 end
 
--- Fala 9b: setLabelText NIE jest zbindowane w mudlet-web (jest tylko
--- getLabelText); tam nazwane echo(name, text) na labelu ZASTEPUJE zawartosc
--- (LuaRuntime.ts), czyli dokladnie semantyka setLabelText z desktopa.
--- Feature-detect: desktop -&gt; setLabelText, mudlet-web -&gt; nazwane echo.
+-- Fala 9b/14: nazwane echo(name, text) na labelu ZASTEPUJE zawartosc —
+-- semantyka identyczna na desktopie i w mudlet-web (LuaRuntime.ts).
+-- Dedykowane API zmiany tekstu labela nie jest zbindowane ani w
+-- mudlet-web, ani na desktopie 5.0.1 (sonda na zywym AppImage, fala 13),
+-- wiec dawna galaz feature-detect z fali 9b byla martwa — usunieta.
 local function setText(name, s)
-  if type(setLabelText) == "function" then
-    setLabelText(name, s)
-  else
-    echo(name, s)
-  end
+  echo(name, s)
 end
 
 -- Fala 12: paleta styli UI (zgloszenie: "wszystko w jednym kolorze, zlewa
@@ -1717,9 +1714,9 @@ local function renderLibrary()
 
   -- Fala 13 (F13-B): wiersz "Zapisz jako..." tylko na desktopie.
   -- Detektor: getMudletVersion — mudlet-web (LuaRuntime.ts) go NIE
-  -- binduje, desktop 5.0.1 ma (sonda na zywym AppImage). Uwaga: marker
-  -- z fali 9b (setLabelText) odpada — na realnym desktopie 5.0.1 tez
-  -- jest nil, wiec przycisk by sie NIGDY nie pokazal.
+  -- binduje, desktop 5.0.1 ma (sonda na zywym AppImage). Uwaga: dawny
+  -- marker z fali 9b odpada — na realnym desktopie 5.0.1 tez jest
+  -- niezbindowany, wiec przycisk by sie NIGDY nie pokazal.
   -- mudlet-web zostaje na Pobierz JSON/TXT (pobieranie przegladarki,
   -- limit platformy). Wpis w pole nazwy jest opcjonalny; puste =
   -- domyslna truwer-sceny-&lt;stamp&gt;.json.
@@ -1844,8 +1841,8 @@ local function renderEdit()
   line("truwer.ed.opis", 10, 128, 610, s.opis or "", function(t)
     core.setOpis(t)
   end)
-  -- Fala 11: dwa osobne labele zamiast \n — setLabelText na desktopie
-  -- (Qt) nie lamie linii, wiec jednolinijkowy hint ucinal sie po prawej.
+  -- Fala 11: dwa osobne labele zamiast \n — echo na labelu nie lamie
+  -- linii, wiec jednolinijkowy hint ucinal sie po prawej.
   -- Fala 12 (B7): hinty przygaszonym kolorem na przezroczystym tle —
   -- domyslny label Geysera dawal czarny tekst na ciemnym pasku
   -- (nieczytelne; weryfikacja na zywym Mudlecie 5.0.1).
