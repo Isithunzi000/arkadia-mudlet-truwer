@@ -31,4 +31,6 @@ Pakiet przy starcie klienta (nie częściej niż co 8 godzin) sprawdza najnowsze
 
 Sceny i ustawienia zapisują się w katalogu profilu Mudleta (`<profil>/truwer-dane/`).
 
+Eksport scen: przyciski **Pobierz JSON/TXT** zapisują do `<profil>/truwer-dane/eksport/`. Na desktopie (Mudlet na komputerze) jest też **Zapisz jako…** — wybierasz dowolny katalog w natywnym oknie dialogowym i możesz podać własną nazwę pliku. Na mudlet-web (przeglądarka) przycisku „Zapisz jako…" nie ma, bo platforma nie udostępnia natywnego zapisu — użyj „Pobierz JSON/TXT".
+
 Licencja [AGPL-3.0](LICENSE).

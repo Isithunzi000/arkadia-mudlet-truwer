@@ -1350,6 +1350,35 @@ function core.exportSelected(fmt)
   return path
 end
 
+-- Fala 13 (F13-B): "Zapisz jako..." — zapis zaznaczonych scen jako JSON do
+-- katalogu wybranego natywnym dialogiem (invokeFileDialog(false, ...) =
+-- QFileDialog::getExistingDirectory na desktopie; getSaveFileName nie jest
+-- zbindowane do Lua, wiec katalog + osobne pole nazwy). Wola je wylacznie
+-- przycisk renderowany tylko na desktopie (feature-detect setLabelText jak
+-- fala 9b) — mudlet-web nie ma natywnego save-as (limit platformy).
+function core.exportSelectedAs()
+  local scenes = core.selectedScenes()
+  if #scenes == 0 then return nil end -- jak exportSelected: bez dialogu na prozno
+  local dir = invokeFileDialog(false, "Wybierz katalog zapisu")
+  if type(dir) ~= "string" or dir == "" then
+    core.showStatus("Zapis anulowany.", "info")
+    return nil
+  end
+  local name = tostring(core.state.saveAsName or "")
+  name = name:gsub("^%s+", ""):gsub("%s+$", "")
+  if name == "" then name = "truwer-sceny-" .. core.bulkStamp() end
+  name = core.safeName(name)
+  if not name:lower():match("%.json$") then name = name .. ".json" end
+  local path = dir .. "/" .. name
+  local ok, err = writeTextFile(path, core.bulkJson(scenes))
+  if not ok then
+    core.showStatus("Błąd zapisu pliku.", "error")
+    return nil, err
+  end
+  core.showStatus("Zapisano: " .. path, "success")
+  return path
+end
+
 -- Import z pliku (D16): sciezka z invokeFileDialog; anulowany dialog = nil.
 -- Semantyka statusow identyczna jak onImportText w dargoth.
 function core.importFile(path)
@@ -1685,17 +1714,37 @@ local function renderLibrary()
   btn("truwer.bulk.del", 488, 36, 132, confirmLabel("__bulk__", "Usuń zaznaczone"),
     clickDeleteSelected, nil, STYLE.danger)
 
+  -- Fala 13 (F13-B): wiersz "Zapisz jako..." tylko na desktopie
+  -- (feature-detect setLabelText jak fala 9b) — natywny dialog wyboru
+  -- katalogu istnieje tylko tam; mudlet-web zostaje na Pobierz JSON/TXT
+  -- (pobieranie przegladarki, limit platformy). Wpis w pole nazwy jest
+  -- opcjonalny; puste = domyslna truwer-sceny-&lt;stamp&gt;.json.
+  local listY, listH = 66, 416
+  if type(setLabelText) == "function" then
+    txt("truwer.bulk.savelbl", 10, 66, 300, 16,
+      "Nazwa pliku (opcjonalna):", nil, STYLE.lbl)
+    line("truwer.bulk.savename", 10, 84, 300, core.state.saveAsName or "",
+      function(t) core.state.saveAsName = t end)
+    btn("truwer.bulk.saveas", 318, 82, 130, "Zapisz jako…", function()
+      core.exportSelectedAs()
+      gui.render()
+    end, nil, STYLE.primary)
+    txt("truwer.bulk.savehint", 456, 84, 164, 32,
+      "JSON, katalog do wyboru (tylko desktop)", nil, STYLE.meta)
+    listY, listH = 122, 360
+  end
+
   -- Fala 11: lista scen w przewijanym pojemniku (jak prompter/pomoc) —
   -- przy wiekszej liczbie scen wiersze nie wychodza poza dol okna.
   local scroll = gui.managed["truwer.lib.scroll"]
   if not scroll then
     scroll = Geyser.ScrollBox:new({
-      name = "truwer.lib.scroll", x = 10, y = 66, width = 610, height = 416,
+      name = "truwer.lib.scroll", x = 10, y = listY, width = 610, height = listH,
     }, gui.win)
     gui.managed["truwer.lib.scroll"] = scroll
   else
-    scroll:move(10, 66)
-    scroll:resize(610, 416)
+    scroll:move(10, listY)
+    scroll:resize(610, listH)
   end
   scroll:show()
 
@@ -2040,6 +2089,8 @@ local HELP_LINES = {
   "  pauza; linia od # to notatka.",
   "- Eksport: JSON (pełna kopia) lub TXT (prosty tekst), do katalogu",
   "  truwer-dane/eksport w profilu.",
+  "- Zapisz jako… (tylko desktop): wybierasz katalog i możesz",
+  "  podać nazwę pliku. Na mudlet-web brak (limit platformy).",
   "- Import jest dosłowny: komendy z wiodącym / trzeba pozbawić /",
   "  (klient rezerwuje / dla aliasów), żeby trafiły do gry.",
   "",
