@@ -1477,14 +1477,18 @@ local STYLE = {
   primary = "background-color:#2e5d8c;color:#ffffff;border:1px solid #4a80b4;border-radius:3px;",
   danger = "background-color:#7c3030;color:#ffffff;border:1px solid #a05050;border-radius:3px;",
   field = "background-color:#20242c;color:#e8ebf0;border:1px solid #5a6478;",
-  title = "color:#f0f3f8;",
-  meta = "color:#9aa4b5;",
-  lbl = "color:#aeb8c8;",
+  -- Fala 12 (B7, weryfikacja na zywym Mudlecie 5.0.1 AppImage): style
+  -- tylko z color MUSZA miec background-color:transparent — inaczej Qt
+  -- daje labelowi domyslne jasne tlo (bialy pasek), a jasny tekst
+  -- (np. tytul sceny #f0f3f8) staje sie niewidoczny.
+  title = "color:#f0f3f8;background-color:transparent;",
+  meta = "color:#9aa4b5;background-color:transparent;",
+  lbl = "color:#aeb8c8;background-color:transparent;",
 }
 local STATUS_STYLE = {
-  info = "color:#9fc5e8;",
-  success = "color:#8fd18a;",
-  error = "color:#e88a8a;",
+  info = "color:#9fc5e8;background-color:transparent;",
+  success = "color:#8fd18a;background-color:transparent;",
+  error = "color:#e88a8a;background-color:transparent;",
 }
 local function applyStyle(l, css)
   if l and type(l.setStyleSheet) == "function" then l:setStyleSheet(css) end
