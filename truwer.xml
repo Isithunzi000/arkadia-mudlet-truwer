@@ -576,15 +576,15 @@ function core.importScenes(text, dslTitle, jsonName)
 end
 
 -- ---------------------------------------------------------------------------
--- Storage per postac (D2): &lt;profil&gt;/truwer/library.&lt;postac&gt;.lua
--- prefs per profil: &lt;profil&gt;/truwer/prefs.lua
+-- Storage per postac (D2): &lt;profil&gt;/truwer-dane/library.&lt;postac&gt;.lua
+-- prefs per profil: &lt;profil&gt;/truwer-dane/prefs.lua
 -- ---------------------------------------------------------------------------
 local function profileDir()
   return tostring(getMudletHomeDir())
 end
 
 local function storagePath(name)
-  return profileDir() .. "/truwer/" .. name .. ".lua"
+  return profileDir() .. "/truwer-dane/" .. name .. ".lua"
 end
 
 local function ensureDir()
@@ -594,8 +594,8 @@ local function ensureDir()
   -- z "Blad eksportu pliku." na profilu bez recznie utworzonego eksport/
   -- (zgłoszenie z AppImage; mudlet-web tolerowal brak katalogu).
   if type(lfs) == "table" and type(lfs.mkdir) == "function" then
-    pcall(lfs.mkdir, profileDir() .. "/truwer")
-    pcall(lfs.mkdir, profileDir() .. "/truwer/eksport")
+    pcall(lfs.mkdir, profileDir() .. "/truwer-dane")
+    pcall(lfs.mkdir, profileDir() .. "/truwer-dane/eksport")
   end
 end
 
@@ -614,7 +614,7 @@ end
 -- pliki legacy zostaja nietkniete (nic nie kasujemy znad gotowej
 -- biblioteki).
 local function legacyLibraryFiles()
-  local dir = profileDir() .. "/truwer"
+  local dir = profileDir() .. "/truwer-dane"
   local out = {}
   if type(lfs) == "table" and type(lfs.dir) == "function" then
     -- Fala 10: desktop (Mudlet 4.22) zwraca z lfs.dir PARE (iterator,
@@ -1297,10 +1297,10 @@ function core.deleteSelected()
   return #scenes
 end
 
--- Eksport (D17): zapis do &lt;profil&gt;/truwer/eksport/, status z pelna sciezka
+-- Eksport (D17): zapis do &lt;profil&gt;/truwer-dane/eksport/, status z pelna sciezka
 -- (odpowiednik pobierania pliku w przegladarce).
 local function exportDir()
-  return profileDir() .. "/truwer/eksport"
+  return profileDir() .. "/truwer-dane/eksport"
 end
 
 local function writeTextFile(path, content)
@@ -2039,7 +2039,7 @@ local HELP_LINES = {
   "- Format tekstu: każda linia to komenda; /pauza lub /pauza N to",
   "  pauza; linia od # to notatka.",
   "- Eksport: JSON (pełna kopia) lub TXT (prosty tekst), do katalogu",
-  "  truwer/eksport w profilu.",
+  "  truwer-dane/eksport w profilu.",
   "- Import jest dosłowny: komendy z wiodącym / trzeba pozbawić /",
   "  (klient rezerwuje / dla aliasów), żeby trafiły do gry.",
   "",
@@ -2082,7 +2082,7 @@ local function renderSettings()
   end)
   txt("truwer.st.label", 10, 50, 610, 24, "Ustawienia")
   txt("truwer.st.info", 10, 80, 610, 20,
-    "Biblioteka zapisywana w profilu: truwer/library.lua")
+    "Biblioteka zapisywana w profilu: truwer-dane/library.lua")
   btn("truwer.st.update", 10, 130, 180, "Sprawdź aktualizacje", function()
     truwer.updater.check(true)
   end)

@@ -29,6 +29,6 @@ Plugin w pełni zgodny z regulaminem gry — wszystkie komendy wysyłane świado
 
 Pakiet przy starcie klienta (nie częściej niż co 8 godzin) sprawdza najnowsze wydanie na GitHubie i wyświetla powiadomienie o nowszej wersji — sam nic nie instaluje; aktualizację uruchamiasz świadomie komendą `/truwer aktualizuj`.
 
-Sceny i ustawienia zapisują się w katalogu profilu Mudleta (`<profil>/truwer/`).
+Sceny i ustawienia zapisują się w katalogu profilu Mudleta (`<profil>/truwer-dane/`).
 
 Licencja [AGPL-3.0](LICENSE).
