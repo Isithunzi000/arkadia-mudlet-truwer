@@ -2376,6 +2376,9 @@ end
 function gui.toggle()
   if not gui.win then return end
   if gui.open then
+    -- Fala 18 (F18-B): zamkniecie okna splukuje pola jak kazda inna
+    -- akcja GUI — wpis bez Entera nie ginie przy zamykaniu.
+    gui.flushFields()
     gui.open = false
     gui.win:hide()
     return
