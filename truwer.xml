@@ -7,7 +7,7 @@
 end</script>
 			<command />
 			<packageName />
-			<regex>(?i)^/truwer$</regex>
+			<regex>^/[Tt][Rr][Uu][Ww][Ee][Rr]$</regex>
 		</Alias>
 		<Alias isActive="yes" isFolder="no">
 			<name>truwer_pomoc_alias</name>
@@ -16,7 +16,7 @@ end</script>
 end</script>
 			<command />
 			<packageName />
-			<regex>(?i)^/truwer\s+(pomoc|help)$</regex>
+			<regex>^/[Tt][Rr][Uu][Ww][Ee][Rr]\s+([Pp][Oo][Mm][Oo][Cc]|[Hh][Ee][Ll][Pp])$</regex>
 		</Alias>
 		<Alias isActive="yes" isFolder="no">
 			<name>truwer_aktualizuj_alias</name>
@@ -25,7 +25,7 @@ end</script>
 end</script>
 			<command />
 			<packageName />
-			<regex>(?i)^/truwer\s+aktualizuj$</regex>
+			<regex>^/[Tt][Rr][Uu][Ww][Ee][Rr]\s+[Aa][Kk][Tt][Uu][Aa][Ll][Ii][Zz][Uu][Jj]$</regex>
 		</Alias>
 	</AliasPackage>
 	<ScriptPackage>
@@ -2357,8 +2357,10 @@ local function renderSettings()
   -- pierwszego bloku Script — tu prosto z getMudletHomeDir).
   txt("truwer.st.path", 10, 104, 610, 24,
     "truwer-dane/library.lua", nil, STYLE.chip)
-  txt("truwer.st.abspath", 10, 134, 610, 20,
-    tostring(getMudletHomeDir()) .. "/truwer-dane", nil, STYLE.meta)
+  -- Fala 19 (F19-B): pelna sciezka katalogu tez jako chip (zgloszenie:
+  -- wyroznic jak chip pliku powyzej).
+  txt("truwer.st.abspath", 10, 134, 610, 24,
+    tostring(getMudletHomeDir()) .. "/truwer-dane", nil, STYLE.chip)
   -- Fala 15 (F15-C): katalog zapisu ZOSTAJE nieedytowalny (decyzja) —
   -- copy mowi o tym wprost i wskazuje Zapisz jako jako droge zapisu
   -- w inne miejsce, zamiast sugerowac, ze pole do edycji zniknelo.
