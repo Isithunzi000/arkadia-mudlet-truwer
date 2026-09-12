@@ -1027,6 +1027,23 @@ function core.stepLabel(k)
   return t
 end
 
+-- Fala 16 (F16-B): didaskalia kroku — ciagly blok notatek stojacych
+-- BEZPOSREDNIO przed krokiem pod kursorem (konwencja: notatka tuz przed
+-- krokiem opisuje TEN krok, np. "poczekaj na reakcje"). Kursor 0-based:
+-- krok = kroki[cursor+1]; notatki przed nim = kroki[cursor], [cursor-1]...
+-- az do pierwszego kroku grywalnego. Kolejnosc chronologiczna.
+function core.didaskalia(s, cursor)
+  local out = {}
+  local i = cursor
+  while i &gt;= 1 do
+    local k = s.kroki[i]
+    if not k or k.typ ~= "nota" then break end
+    table.insert(out, 1, k.tekst or "")
+    i = i - 1
+  end
+  return out
+end
+
 -- D28: bufor promptera; [\r\n]+ -&gt; spacja (paritet z textarea dargotha).
 function core.setPlayBuffer(txt)
   core.state.playBuffer = (tostring(txt):gsub("[\r\n]+", " "))
@@ -1597,6 +1614,9 @@ local STYLE = {
   title = "color:#f0f3f8;background-color:transparent;",
   meta = "color:#9aa4b5;background-color:transparent;",
   lbl = "color:#aeb8c8;background-color:transparent;",
+  -- Fala 16 (F16-B): notatki/didaskalia — bursztyn, kursywa; wyraznie
+  -- odroznia sie od komend (jasne), mety (przygaszonej) i statusow.
+  nota = "color:#e0b85c;font-style:italic;background-color:transparent;",
   -- Fala 15 (F15-C): stopka-link (klikalna, ale wyglada jak dotychczasowy
   -- przygaszony tekst, bez ramki przycisku).
   footlink = "color:#9aa4b5;background-color:transparent;border:none;text-align:left;",
@@ -2053,16 +2073,18 @@ local function renderPlay()
   txt("truwer.pl.hint", 10, 94, 400, 20, "Kliknij krok, aby go aktywować")
 
   -- D29: lista krokow w przewijanym pojemniku
+  -- Fala 16 (F16-B): lista krotsza (koniec 302 zamiast 354) — miejsce
+  -- na strefe didaskalii (306-342) nad panelem kroku.
   local scroll = gui.managed["truwer.pl.scroll"]
   if not scroll then
     -- Fala 10: kontener DRUGIM argumentem (jak w mk powyzej).
     scroll = Geyser.ScrollBox:new({
-      name = "truwer.pl.scroll", x = 10, y = 118, width = 610, height = 236,
+      name = "truwer.pl.scroll", x = 10, y = 118, width = 610, height = 184,
     }, gui.win)
     gui.managed["truwer.pl.scroll"] = scroll
   else
     scroll:move(10, 118)
-    scroll:resize(610, 236)
+    scroll:resize(610, 184)
   end
   scroll:show()
 
@@ -2080,14 +2102,33 @@ local function renderPlay()
         gui.render()
       end, scroll, (i - 1 == st.cursor) and STYLE.primary or nil)
     else
-      txt("truwer.pl.row." .. i, 4, 4 + (i - 1) * 26, 590, 24, label, scroll)
+      -- Fala 16 (F16-B): notatka wyrozniona bursztynem — nie zlewa sie
+      -- z komendami na liscie.
+      txt("truwer.pl.row." .. i, 4, 4 + (i - 1) * 26, 590, 24, label,
+        scroll, STYLE.nota)
+    end
+  end
+
+  -- Fala 16 (F16-B): didaskalia biezacego kroku (notatki tuz przed nim)
+  -- w zarezerwowanej strefie 306-342 miedzy lista a panelem. Max 2 linie;
+  -- przy 3+ notatkach druga linia konczy sie wielokropkiem. Koniec sceny
+  -- (kursor za lista): brak didaskalii.
+  if st.cursor &lt; total then
+    local d = core.didaskalia(s, st.cursor)
+    for li = 1, math.min(2, #d) do
+      local dt = "» " .. fitText(d[li], 60)
+      if li == 2 and #d &gt; 2 then dt = dt .. " …" end
+      txt("truwer.pl.did." .. li, 10, 288 + li * 18, 610, 18, dt,
+        nil, STYLE.nota)
     end
   end
 
   -- panel biezacego kroku (buildPlayPanel)
   -- Fala 15 (F15-D): panel wyzej (bylo 366), zeby nawigacja zdazyla
   -- nad dwuwierszowym statusem (linia 1 od y=470).
-  local py = 358
+  -- Fala 16 (F16-B): py 358 -&gt; 346 (strefa didaskalii wyzej, 306-342);
+  -- przyciski koncza sie na 424, nawigacja od 440 — luka 16 px.
+  local py = 346
   if st.cursor &gt;= total then
     txt("truwer.pl.big", 10, py, 610, 28,
       total &gt; 0 and "Koniec sceny" or "Brak kroków")
@@ -2169,8 +2210,9 @@ local HELP_LINES = {
   "- Komenda — zwykła komenda gry, wysyłana dosłownie. Może być długa.",
   "- Pauza — przerwa z odliczaniem, jako podpowiedź tempa. Sama nic",
   "  nie wysyła. Może mieć liczbę sekund.",
-  "- Notatka — tekst tylko dla Ciebie. Nigdy nie jest wysyłana;",
-  "  prompter ją pomija.",
+  "- Notatka — tekst tylko dla Ciebie. Nigdy nie jest wysyłana. Notatka",
+  "  tuż przed krokiem to jego didaskalia: prompter pokazuje ją nad",
+  "  polem kroku (bursztyn).",
   "- Mowę pisz przez: powiedz &lt;tekst&gt; (nie przez apostrof).",
   "",
   "warianty komendy (znak |):",
