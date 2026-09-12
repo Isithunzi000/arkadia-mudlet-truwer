@@ -984,9 +984,14 @@ function core.back()
   local s = core.currentScene()
   if not s then return end
   core.stopPause()
+  -- Fala 18 (F18-C): Wstecz bez ruchu (pierwszy krok) mowi, nie milczy.
+  local oldCursor = core.state.cursor
   local target = core.state.cursor &gt;= #s.kroki and (#s.kroki - 1) or (core.state.cursor - 1)
   local p = core.prevPlayable(s.kroki, target)
   core.state.cursor = p &lt; 0 and core.firstPlayable(s.kroki, 0) or p
+  if #s.kroki &gt; 0 and core.state.cursor == oldCursor then
+    core.showStatus("To już pierwszy krok.", "info")
+  end
   core.primeBuffer()
 end
 
@@ -1310,7 +1315,13 @@ end
 
 function core.deleteSelected()
   local scenes = core.selectedScenes()
-  if #scenes == 0 then return 0 end
+  -- Fala 18 (F18-C): komunikat zamiast ciszy przy pustym zaznaczeniu
+  -- (F15-A ustalila: przyciski zawsze aktywne, status mowi co zrobic;
+  -- deleteSelected zostalo wtedy pominiete).
+  if #scenes == 0 then
+    core.showStatus("Najpierw zaznacz sceny.", "info")
+    return 0
+  end
   local doomed = {}
   for _, s in ipairs(scenes) do doomed[s.id] = true end
   local st = core.state
@@ -1736,6 +1747,13 @@ local function clickDeleteScene(id)
 end
 
 local function clickDeleteSelected()
+  -- Fala 18 (F18-C): puste zaznaczenie NIE uzbraja dwukliku — od razu
+  -- status, zeby plugin nie pytal "Na pewno?" o usuniecie zera scen.
+  if #core.selectedScenes() == 0 then
+    core.showStatus("Najpierw zaznacz sceny.", "info")
+    gui.render()
+    return
+  end
   local now = core.nowMs()
   if gui.confirm.id == "__bulk__" and now - gui.confirm.at &lt; CONFIRM_TTL_MS then
     gui.confirm.id = nil
