@@ -850,22 +850,37 @@ function core.setStepText(i, txt)
   core.saveLibrary()
 end
 
--- D24: puste albo nie-liczba -&gt; nil, liczba &gt;= 0 skonczona -&gt; wartosc
--- (paritet z inputem liczbowym dargotha).
+-- D24: puste -&gt; nil (pauza reczna). Fala 16 (F16-C): walidacja hardened —
+-- przecinek normalizowany do kropki; sztywny wzorzec cyfry[.cyfry]
+-- (odrzuca litery, notacje e/hex, wiodace plusy, wielokrotne kropki —
+-- swiadomy rozjazd z tonumber z D24); bledna wartosc NIE kasuje starej,
+-- tylko status error; sufit 3600 s (1 h), powyzej odrzut z komunikatem.
 function core.setStepSekundy(i, txt)
   local s = core.currentScene()
   if not s then return end
   local k = s.kroki[i]
   if not k or k.typ ~= "pauza" then return end
   txt = tostring(txt)
-  local v = tonumber(txt)
-  if txt ~= "" and v ~= nil and v &gt;= 0 and v &lt; math.huge then
-    k.sekundy = v
-  else
+  if txt:match("^%s*$") then
     k.sekundy = nil
+    touchScene(s)
+    core.saveLibrary()
+    return true
   end
+  local norm = txt:gsub(",", ".")
+  if not (norm:match("^%s*%d+%.?%d*%s*$") or norm:match("^%s*%.%d+%s*$")) then
+    core.showStatus("Sekundy: tylko liczby (np. 5 albo 2.5).", "error")
+    return nil, "nieprawidlowa liczba"
+  end
+  local v = tonumber((norm:gsub("^%s+", ""):gsub("%s+$", "")))
+  if v &gt; 3600 then
+    core.showStatus("Sekundy: maksimum 3600 (1 h).", "error")
+    return nil, "za duzo"
+  end
+  k.sekundy = v
   touchScene(s)
   core.saveLibrary()
+  return true
 end
 
 local function newKrok(typ)
