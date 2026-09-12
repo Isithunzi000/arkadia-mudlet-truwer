@@ -1359,10 +1359,12 @@ end
 -- Fala 13 (F13-B): "Zapisz jako..." — zapis zaznaczonych scen jako JSON do
 -- katalogu wybranego natywnym dialogiem (invokeFileDialog(false, ...) =
 -- QFileDialog::getExistingDirectory na desktopie; getSaveFileName nie jest
--- zbindowane do Lua, wiec katalog + osobne pole nazwy). Wola je wylacznie
--- przycisk renderowany tylko na desktopie (detektor getMudletVersion —
--- patrz renderLibrary) — mudlet-web nie ma natywnego save-as (limit
--- platformy).
+-- zbindowane do Lua, wiec katalog + osobne pole nazwy).
+-- Fala 16 (F16-A): wola ja przycisk renderowany wszedzie tam, gdzie
+-- invokeFileDialog istnieje (detektor capability — patrz renderLibrary).
+-- Aktualny mudlet-web binduje invokeFileDialog (Bridge.lua: picker po
+-- VFS profilu), wiec save-as dziala rowniez na web; klient bez bindingu
+-- przycisku nie pokazuje.
 function core.exportSelectedAs()
   local scenes = core.selectedScenes()
   -- Fala 15 (F15-A): jak exportSelected — komunikat zamiast ciszy,
@@ -1393,8 +1395,8 @@ end
 
 -- Fala 15 (F15-B): "Zapisz jako..." per scena — jak exportScene(id, "json"),
 -- ale do katalogu wybranego natywnym dialogiem; nazwa pliku z tytulu.
--- Wola ja wylacznie przycisk wiersza renderowany tylko na desktopie
--- (detektor getMudletVersion — jak wiersz zbiorczy z fali 13).
+-- Fala 16 (F16-A): wola ja przycisk wiersza renderowany tam, gdzie
+-- invokeFileDialog istnieje (detektor capability — jak wiersz zbiorczy).
 function core.exportSceneAs(id)
   local s
   for _, x in ipairs(core.state.library) do
@@ -1784,18 +1786,19 @@ local function renderLibrary()
   btn("truwer.bulk.del", 488, 36, 132, confirmLabel("__bulk__", "Usuń zaznaczone"),
     clickDeleteSelected, nil, STYLE.danger)
 
-  -- Fala 13 (F13-B): wiersz "Zapisz jako..." tylko na desktopie.
-  -- Detektor: getMudletVersion — mudlet-web (LuaRuntime.ts) go NIE
-  -- binduje, desktop 5.0.1 ma (sonda na zywym AppImage). Uwaga: dawny
-  -- marker z fali 9b odpada — na realnym desktopie 5.0.1 tez jest
-  -- niezbindowany, wiec przycisk by sie NIGDY nie pokazal.
-  -- mudlet-web zostaje na Pobierz JSON/TXT (pobieranie przegladarki,
-  -- limit platformy). Wpis w pole nazwy jest opcjonalny; puste =
+  -- Fala 13 (F13-B): wiersz "Zapisz jako..." — natywny dialog katalogu.
+  -- Fala 16 (F16-A): detektor CAPABILITY — type(invokeFileDialog).
+  -- Dawny detektor po wersji klienta odpada: aktualny mudlet-web
+  -- binduje ja tak samo jak desktop (Bridge.lua), wiec nic nie rozroznil.
+  -- invokeFileDialog na mudlet-web istnieje (picker po VFS profilu),
+  -- wiec save-as dziala tez na web; klient BEZ bindingu zostaje na
+  -- Pobierz JSON/TXT (pobieranie przegladarki) i przycisku nie widzi.
+  -- Wpis w pole nazwy jest opcjonalny; puste =
   -- domyslna truwer-sceny-&lt;stamp&gt;.json.
   -- Fala 15 (F15-D): lista konczy sie na 468 — nad dwuwierszowym
   -- statusem (linia 1 od y=470).
   local listY, listH = 66, 402
-  if type(getMudletVersion) == "function" then
+  if type(invokeFileDialog) == "function" then
     txt("truwer.bulk.savelbl", 10, 66, 300, 16,
       "Nazwa pliku (opcjonalna):", nil, STYLE.lbl)
     line("truwer.bulk.savename", 10, 84, 300, core.state.saveAsName or "",
@@ -1869,9 +1872,10 @@ local function renderLibrary()
     end, scroll)
     btn("truwer.row." .. i .. ".del", 348, ya, 80, confirmLabel(sid, "Usuń"),
       function() clickDeleteScene(sid) end, scroll, STYLE.danger)
-    -- Fala 15 (F15-B): Zapisz jako... per scena, desktop-only (natywny
-    -- dialog katalogu) — wolny skrawek wiersza za przyciskiem Usun.
-    if type(getMudletVersion) == "function" then
+    -- Fala 15 (F15-B): Zapisz jako... per scena — wolny skrawek wiersza
+    -- za przyciskiem Usun. Fala 16 (F16-A): capability invokeFileDialog
+    -- (jak wiersz zbiorczy; dziala tez na aktualnym mudlet-web).
+    if type(invokeFileDialog) == "function" then
       btn("truwer.row." .. i .. ".saveas", 436, ya, 110, "Zapisz jako…", function()
         core.exportSceneAs(sid)
         gui.render()
@@ -2175,9 +2179,8 @@ local HELP_LINES = {
   "  pauza; linia od # to notatka.",
   "- Eksport: JSON (pełna kopia) lub TXT (prosty tekst), do katalogu",
   "  truwer-dane/eksport w profilu.",
-  "- Zapisz jako… (tylko desktop): zbiorczo nad listą albo per scena",
-  "  przycisk w wierszu. Wybierasz katalog; zbiorczo możesz też podać",
-  "  nazwę pliku. Na mudlet-web brak (limit platformy).",
+  "- Zapisz jako…: zbiorczo nad listą albo per scena przycisk w wierszu.",
+  "  Wybierasz katalog; zbiorczo możesz też podać nazwę pliku.",
   "- Import jest dosłowny: komendy z wiodącym / trzeba pozbawić /",
   "  (klient rezerwuje / dla aliasów), żeby trafiły do gry.",
   "",
@@ -2229,7 +2232,7 @@ local function renderSettings()
   txt("truwer.st.info2", 10, 102, 610, 20,
     "Katalog jest nieedytowalny. Zapis w inne miejsce: Zapisz jako…", nil, STYLE.meta)
   txt("truwer.st.info3", 10, 122, 610, 20,
-    "w bibliotece (tylko desktop).", nil, STYLE.meta)
+    "w bibliotece.", nil, STYLE.meta)
   btn("truwer.st.update", 10, 152, 180, "Sprawdź aktualizacje", function()
     truwer.updater.check(true)
   end)
