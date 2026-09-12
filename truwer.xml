@@ -1644,6 +1644,10 @@ local function btn(name, x, y, wd, label, fn, container, style)
   return l
 end
 
+-- Fala 17: kazde wywolanie helpera txt MUSI miec jawny styl (8 arg.) —
+-- domyslny label Qt to ciemny tekst, ledwo czytelny na ciemnym oknie.
+-- Konwencja: lbl = liczniki/etykiety/komunikaty, meta = hinty, title =
+-- naglowki. Pilnuje tego test bialo-box (suita D).
 local function txt(name, x, y, wd, h, text, container, style)
   local l = mk(name, x, y, wd, h, container)
   setText(name, text)
@@ -1795,7 +1799,7 @@ local function renderLibrary()
   local items = core.sortedLibrary()
   if #items == 0 then
     txt("truwer.empty", 10, 40, 610, 24,
-      "Brak zapisanych scen. Utwórz nową lub zaimportuj.")
+      "Brak zapisanych scen. Utwórz nową lub zaimportuj.", nil, STYLE.lbl)
     return
   end
 
@@ -1809,7 +1813,7 @@ local function renderLibrary()
       core.selectAll(core.sortedLibrary())
       gui.render()
     end)
-  txt("truwer.bulk.count", 146, 36, 130, 24, "zaznaczone: " .. selN .. "/" .. #items)
+  txt("truwer.bulk.count", 146, 36, 130, 24, "zaznaczone: " .. selN .. "/" .. #items, nil, STYLE.lbl)
   btn("truwer.bulk.json", 282, 36, 100, "Pobierz JSON", function()
     core.exportSelected("json")
     gui.render()
@@ -1991,20 +1995,20 @@ local function renderEdit()
   scroll:show()
 
   if #s.kroki == 0 then
-    txt("truwer.ed.empty", 6, 4, 590, 24, "Brak kroków. Dodaj poniżej.", scroll)
+    txt("truwer.ed.empty", 6, 4, 590, 24, "Brak kroków. Dodaj poniżej.", scroll, STYLE.lbl)
   end
   for i, k in ipairs(s.kroki) do
     local y = 4 + (i - 1) * ED_ROW_H
     local p = "truwer.ed.row." .. i
     local typ = k.typ
-    txt(p .. ".num", 6, y, 22, 24, i .. ".", scroll)
+    txt(p .. ".num", 6, y, 22, 24, i .. ".", scroll, STYLE.meta)
     btn(p .. ".type", 32, y, 92, TYPE_LABEL[typ] or tostring(typ), function()
       core.changeType(i, TYPE_CYCLE[typ])
       gui.render()
     end, scroll)
     if typ == "pauza" then
       -- Fala 12: etykieta "sekundy:" zamiast "PAUZA" (typ widac na przycisku typu)
-      txt(p .. ".pauselbl", 128, y, 54, 24, "sekundy:", scroll)
+      txt(p .. ".pauselbl", 128, y, 54, 24, "sekundy:", scroll, STYLE.lbl)
       line(p .. ".sek", 186, y, 56,
         k.sekundy ~= nil and core.fmtNum(k.sekundy) or "", function(t)
           core.setStepSekundy(i, t)
@@ -2069,8 +2073,8 @@ local function renderPlay()
   local total = #s.kroki
   local pos = st.cursor &gt;= total and total or (st.cursor + 1)
   txt("truwer.pl.prog", 216, 66, 120, 24,
-    total &gt; 0 and ("krok " .. pos .. "/" .. total) or "brak kroków")
-  txt("truwer.pl.hint", 10, 94, 400, 20, "Kliknij krok, aby go aktywować")
+    total &gt; 0 and ("krok " .. pos .. "/" .. total) or "brak kroków", nil, STYLE.lbl)
+  txt("truwer.pl.hint", 10, 94, 400, 20, "Kliknij krok, aby go aktywować", nil, STYLE.meta)
 
   -- D29: lista krokow w przewijanym pojemniku
   -- Fala 16 (F16-B): lista krotsza (koniec 302 zamiast 354) — miejsce
@@ -2089,7 +2093,7 @@ local function renderPlay()
   scroll:show()
 
   if total == 0 then
-    txt("truwer.pl.empty", 4, 4, 590, 22, "Brak kroków.", scroll)
+    txt("truwer.pl.empty", 4, 4, 590, 22, "Brak kroków.", scroll, STYLE.lbl)
   end
   for i, k in ipairs(s.kroki) do
     local label = core.stepLabel(k)
@@ -2131,12 +2135,12 @@ local function renderPlay()
   local py = 346
   if st.cursor &gt;= total then
     txt("truwer.pl.big", 10, py, 610, 28,
-      total &gt; 0 and "Koniec sceny" or "Brak kroków")
+      total &gt; 0 and "Koniec sceny" or "Brak kroków", nil, STYLE.title)
   else
     local k = s.kroki[st.cursor + 1]
     if k.typ == "cmd" then
       -- Fala 12: hint wyjasnia, jak wyslac komende
-      txt("truwer.pl.panelhint", 10, py, 610, 20, "do wysłania (Enter = wyślij):")
+      txt("truwer.pl.panelhint", 10, py, 610, 20, "do wysłania (Enter = wyślij):", nil, STYLE.meta)
       line("truwer.pl.line", 10, py + 24, 610, st.playBuffer, function(t)
         core.setPlayBuffer(t) -- Enter: sync bufora z linii (D28)
         local _, err = core.wyslijBufor()
@@ -2161,13 +2165,13 @@ local function renderPlay()
         gui.render()
       end, nil, STYLE.primary)
     elseif k.typ == "pauza" then
-      txt("truwer.pl.pauselbl", 10, py, 90, 28, "PAUZA")
+      txt("truwer.pl.pauselbl", 10, py, 90, 28, "PAUZA", nil, STYLE.lbl)
       if k.sekundy ~= nil and k.sekundy &gt; 0 then
         txt("truwer.pl.countdown", 104, py, 100, 28,
-          core.fmtNum(k.sekundy) .. "s")
+          core.fmtNum(k.sekundy) .. "s", nil, STYLE.lbl)
         core.startPause(k.sekundy)
       else
-        txt("truwer.pl.pausehint", 104, py, 200, 28, "kliknij Dalej")
+        txt("truwer.pl.pausehint", 104, py, 200, 28, "kliknij Dalej", nil, STYLE.meta)
       end
     end
   end
@@ -2270,7 +2274,7 @@ local function renderHelp()
   end
   scroll:show()
   for i, lineTxt in ipairs(HELP_LINES) do
-    txt("truwer.hp.line." .. i, 4, 4 + (i - 1) * 20, 590, 18, lineTxt, scroll)
+    txt("truwer.hp.line." .. i, 4, 4 + (i - 1) * 20, 590, 18, lineTxt, scroll, STYLE.lbl)
   end
 end
 
@@ -2280,9 +2284,9 @@ local function renderSettings()
     core.goLibrary()
     gui.render()
   end)
-  txt("truwer.st.label", 10, 50, 610, 24, "Ustawienia")
+  txt("truwer.st.label", 10, 50, 610, 24, "Ustawienia", nil, STYLE.title)
   txt("truwer.st.info", 10, 80, 610, 20,
-    "Biblioteka zapisywana w profilu: truwer-dane/library.lua")
+    "Biblioteka zapisywana w profilu: truwer-dane/library.lua", nil, STYLE.lbl)
   -- Fala 15 (F15-C): katalog zapisu ZOSTAJE nieedytowalny (decyzja) —
   -- copy mowi o tym wprost i wskazuje Zapisz jako jako droge zapisu
   -- w inne miejsce, zamiast sugerowac, ze pole do edycji zniknelo.
