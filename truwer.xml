@@ -1631,6 +1631,12 @@ local STYLE = {
   -- Fala 16 (F16-B): notatki/didaskalia — bursztyn, kursywa; wyraznie
   -- odroznia sie od komend (jasne), mety (przygaszonej) i statusow.
   nota = "color:#e0b85c;font-style:italic;background-color:transparent;",
+  -- Fala 18 (F18-E): panel didaskalii — ciemne bursztynowe tlo + lewy
+  -- pasek akcentu 3 px. Gole napisy na przezroczystosci zlewaly sie
+  -- z wierszami notatek na liscie (ten sam styl) — teraz to odrebna
+  -- strefa rezyserki. Wzorzec dla portu D/W (tam didaskalii jeszcze
+  -- nie ma): tlo #2b2517, akcent #e0b85c, tekst STYLE.nota.
+  didPanel = "background-color:#2b2517;border-left:3px solid #e0b85c;",
   -- Fala 15 (F15-C): stopka-link (klikalna, ale wyglada jak dotychczasowy
   -- przygaszony tekst, bez ramki przycisku).
   footlink = "color:#9aa4b5;background-color:transparent;border:none;text-align:left;",
@@ -2140,11 +2146,20 @@ local function renderPlay()
   -- (kursor za lista): brak didaskalii.
   if st.cursor &lt; total then
     local d = core.didaskalia(s, st.cursor)
-    for li = 1, math.min(2, #d) do
-      local dt = "» " .. fitText(d[li], 60)
-      if li == 2 and #d &gt; 2 then dt = dt .. " …" end
-      txt("truwer.pl.did." .. li, 10, 288 + li * 18, 610, 18, dt,
-        nil, STYLE.nota)
+    -- Fala 18 (F18-E): didaskalia we wlasnym panelu 304-342 (tlo + lewy
+    -- pasek, STYLE.didPanel) zamiast golych napisow na oknie; linie sa
+    -- dziecmi panelu (x=10: pasek 3 px + odstep). Brak didaskalii =
+    -- panel w ogole nie pokazywany (jak dotad).
+    if #d &gt; 0 then
+      local panel = mk("truwer.pl.did.panel", 10, 304, 610, 38)
+      applyStyle(panel, STYLE.didPanel)
+      panel:show()
+      for li = 1, math.min(2, #d) do
+        local dt = "» " .. fitText(d[li], 60)
+        if li == 2 and #d &gt; 2 then dt = dt .. " …" end
+        txt("truwer.pl.did." .. li, 10, 2 + (li - 1) * 18, 596, 18, dt,
+          panel, STYLE.nota)
+      end
     end
   end
 
