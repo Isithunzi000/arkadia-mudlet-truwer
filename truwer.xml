@@ -1618,6 +1618,9 @@ local STYLE = {
   primary = "background-color:#2e5d8c;color:#ffffff;border:1px solid #4a80b4;border-radius:3px;",
   danger = "background-color:#7c3030;color:#ffffff;border:1px solid #a05050;border-radius:3px;",
   field = "background-color:#20242c;color:#e8ebf0;border:1px solid #5a6478;",
+  -- Fala 18 (F18-D): chip danych technicznych (jak field + padding) —
+  -- sciezka zapisu w ustawieniach, zeby nie zlewala sie z proza.
+  chip = "background-color:#20242c;color:#e8ebf0;border:1px solid #5a6478;border-radius:3px;padding:2px 6px;",
   -- Fala 12 (B7, weryfikacja na zywym Mudlecie 5.0.1 AppImage): style
   -- tylko z color MUSZA miec background-color:transparent — inaczej Qt
   -- daje labelowi domyslne jasne tlo (bialy pasek), a jasny tekst
@@ -2304,15 +2307,22 @@ local function renderSettings()
   end)
   txt("truwer.st.label", 10, 50, 610, 24, "Ustawienia", nil, STYLE.title)
   txt("truwer.st.info", 10, 80, 610, 20,
-    "Biblioteka zapisywana w profilu: truwer-dane/library.lua", nil, STYLE.lbl)
+    "Biblioteka zapisywana w profilu:", nil, STYLE.lbl)
+  -- Fala 18 (F18-D): sciezka jako chip (nie zlewa sie z reszta tekstu),
+  -- pod spodem pelna sciezka absolutna w meta (profileDir jest local
+  -- pierwszego bloku Script — tu prosto z getMudletHomeDir).
+  txt("truwer.st.path", 10, 104, 610, 24,
+    "truwer-dane/library.lua", nil, STYLE.chip)
+  txt("truwer.st.abspath", 10, 134, 610, 20,
+    tostring(getMudletHomeDir()) .. "/truwer-dane", nil, STYLE.meta)
   -- Fala 15 (F15-C): katalog zapisu ZOSTAJE nieedytowalny (decyzja) —
   -- copy mowi o tym wprost i wskazuje Zapisz jako jako droge zapisu
   -- w inne miejsce, zamiast sugerowac, ze pole do edycji zniknelo.
-  txt("truwer.st.info2", 10, 102, 610, 20,
+  txt("truwer.st.info2", 10, 160, 610, 20,
     "Katalog jest nieedytowalny. Zapis w inne miejsce: Zapisz jako…", nil, STYLE.meta)
-  txt("truwer.st.info3", 10, 122, 610, 20,
+  txt("truwer.st.info3", 10, 180, 610, 20,
     "w bibliotece.", nil, STYLE.meta)
-  btn("truwer.st.update", 10, 152, 180, "Sprawdź aktualizacje", function()
+  btn("truwer.st.update", 10, 208, 180, "Sprawdź aktualizacje", function()
     truwer.updater.check(true)
   end)
 end
