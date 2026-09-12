@@ -1512,7 +1512,9 @@ local core = truwer.core
 local ROW_H = 66
 local ED_ROW_H = 30 -- wiersz kroku w edytorze (fala 3)
 local CONFIRM_TTL_MS = 4000 -- D18/D23: dwuklik zamiast window.confirm
--- D22/D27: cykl typu kroku (Mudlet nie ma listy rozwijanej)
+-- D22/D27: cykl typu — od fali 18 (F18-F) TYLKO w pasku dodawania
+-- (nowy krok nie ma tekstu, wiec cykl niczego nie gubi); wiersze
+-- edytora wybieraja typ bezposrednio z pickera (jak &lt;select&gt; w dargoth).
 local TYPE_CYCLE = { cmd = "pauza", pauza = "nota", nota = "cmd" }
 local TYPE_LABEL = { cmd = "Typ: komenda", pauza = "Typ: pauza", nota = "Typ: notatka" }
 
@@ -2029,8 +2031,14 @@ local function renderEdit()
     local p = "truwer.ed.row." .. i
     local typ = k.typ
     txt(p .. ".num", 6, y, 22, 24, i .. ".", scroll, STYLE.meta)
+    -- Fala 18 (F18-F): wybor typu BEZPOSREDNI z pickera zamiast cyklu
+    -- (zgloszenie: cykl cmd->pauza->nota gubil tekst kroku, bo wejscie
+    -- w pauze kasuje tresc, D22; dargoth wybiera z &lt;select&gt;). Klik w
+    -- przycisk typu otwiera/zamyka picker; opcja woła changeType od
+    -- razu na typ docelowy — rdzen bez zmian (paritet D22 zachowany).
     btn(p .. ".type", 32, y, 92, TYPE_LABEL[typ] or tostring(typ), function()
-      core.changeType(i, TYPE_CYCLE[typ])
+      if gui.typePicker == i then gui.typePicker = nil
+      else gui.typePicker = i end
       gui.render()
     end, scroll)
     if typ == "pauza" then
@@ -2064,6 +2072,27 @@ local function renderEdit()
     btn(p .. ".del", 546, y, 44, confirmLabel("step:" .. i, "X", "!"), function()
       clickDeleteStep(i)
     end, scroll, STYLE.danger)
+  end
+
+  -- Fala 18 (F18-F): picker typu renderowany PO petli wierszy, zeby
+  -- opcje byly na wierzchu (inaczej przykrylyby je widgety wierszy
+  -- nizej). Nachodzi na kolejne wiersze jak lista rozwijana — znika
+  -- przy kazdym renderze po wyborze albo ponownym kliku w typ.
+  if gui.typePicker ~= nil and s.kroki[gui.typePicker] ~= nil then
+    local pi = gui.typePicker
+    local py2 = 4 + (pi - 1) * ED_ROW_H
+    local pp = "truwer.ed.row." .. pi
+    local cur = s.kroki[pi].typ
+    local order = { "cmd", "pauza", "nota" }
+    local short = { cmd = "komenda", pauza = "pauza", nota = "notatka" }
+    for oi, otyp in ipairs(order) do
+      btn(pp .. ".typepick." .. otyp, 32, py2 + oi * 24, 92,
+        short[otyp], function()
+          gui.typePicker = nil
+          core.changeType(pi, otyp)
+          gui.render()
+        end, scroll, otyp == cur and STYLE.primary or nil)
+    end
   end
 
   local ay = 440
@@ -2367,6 +2396,10 @@ end
 function gui.render()
   if not gui.win then return end
   for _, wg in pairs(gui.managed) do wg:hide() end
+  -- Fala 18 (F18-F): picker typu zyje tylko w widoku edycji.
+  if not (core.state.view == "scene" and core.state.mode == "edit") then
+    gui.typePicker = nil
+  end
   -- Fala 12: rejestr pol do flushu odbudowywany per widok (stare wpisy
   -- z innego widoku/sceny nie moga commitowac w nie swoja scene).
   gui.fields = {}
