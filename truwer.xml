@@ -7,7 +7,7 @@
 end</script>
 			<command />
 			<packageName />
-			<regex>^/truwer$</regex>
+			<regex>(?i)^/truwer$</regex>
 		</Alias>
 		<Alias isActive="yes" isFolder="no">
 			<name>truwer_pomoc_alias</name>
@@ -16,7 +16,7 @@ end</script>
 end</script>
 			<command />
 			<packageName />
-			<regex>^/truwer\s+(pomoc|help)$</regex>
+			<regex>(?i)^/truwer\s+(pomoc|help)$</regex>
 		</Alias>
 		<Alias isActive="yes" isFolder="no">
 			<name>truwer_aktualizuj_alias</name>
@@ -25,7 +25,7 @@ end</script>
 end</script>
 			<command />
 			<packageName />
-			<regex>^/truwer\s+aktualizuj$</regex>
+			<regex>(?i)^/truwer\s+aktualizuj$</regex>
 		</Alias>
 	</AliasPackage>
 	<ScriptPackage>
